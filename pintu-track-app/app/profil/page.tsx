@@ -198,11 +198,24 @@ export default function Profil() {
           <div>
             <p className="font-semibold">Google Sheets</p>
             <p className="text-xs text-muted">
-              Simpan tautan spreadsheet tujuan. Sinkronisasi otomatis menyusul
-              di fase berikutnya.
+              Setiap catatan baru otomatis jadi baris baru di spreadsheet-mu
+              (kolom: tanggal, keterangan, kategori, jumlah).
             </p>
           </div>
         </div>
+        {profile.sheetServiceEmail ? (
+          <p className="rounded-xl bg-white/5 p-3 text-xs leading-relaxed text-muted">
+            Agar bisa menulis, bagikan spreadsheet-mu (akses <b>Editor</b>) ke:{" "}
+            <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-accent">
+              {profile.sheetServiceEmail}
+            </code>
+          </p>
+        ) : (
+          <p className="rounded-xl bg-white/5 p-3 text-xs leading-relaxed text-muted">
+            Sinkronisasi belum aktif — kredensial Google belum dikonfigurasi di
+            server (lihat DEPLOY.md). Tautan tetap bisa disimpan sekarang.
+          </p>
+        )}
         <input
           className="input"
           value={sheetUrl}

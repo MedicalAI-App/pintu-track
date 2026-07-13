@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { motion, useReducedMotion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
+import { SIGNUP_URL } from "@/lib/config";
 
 const HeroScene = dynamic(() => import("./HeroScene"), {
   ssr: false,
@@ -106,7 +107,7 @@ export default function Hero() {
           </motion.p>
           <motion.div variants={item} className="mt-9 flex flex-wrap items-center gap-4">
             <a
-              href="#mulai"
+              href={SIGNUP_URL}
               className="btn-glow rounded-full bg-gradient-to-r from-accent to-accent-soft px-8 py-3.5 font-semibold text-background transition-transform hover:scale-105"
             >
               Mulai Gratis

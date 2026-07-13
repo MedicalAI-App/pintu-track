@@ -25,6 +25,8 @@ export async function GET() {
       email: row?.email ?? "",
       telegramLinked: Boolean(row?.telegramId),
       sheetUrl: row?.googleSheetUrl ?? "",
+      // Email service account untuk dibagikan akses Editor spreadsheet
+      sheetServiceEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? null,
     },
   });
 }

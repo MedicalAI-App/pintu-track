@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { SIGNUP_URL } from "@/lib/config";
 
 const links = [
   { href: "#demo", label: "Demo" },
@@ -42,7 +43,7 @@ export default function Navbar() {
           ))}
         </ul>
         <a
-          href="#mulai"
+          href={SIGNUP_URL}
           className="rounded-full bg-gradient-to-r from-accent to-accent-soft px-5 py-2 text-sm font-semibold text-background transition-transform hover:scale-105"
         >
           Mulai Gratis

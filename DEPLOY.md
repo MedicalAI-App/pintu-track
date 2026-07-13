@@ -19,9 +19,13 @@ Keduanya sudah punya `Dockerfile` (multi-stage, Next.js standalone, port 3000).
 4. **Base Directory**: `/pintu-track-landing`.
 5. **Ports Exposes**: `3000`.
 6. Set **Domain** (mis. `https://pintutrack.com`) → Coolify mengurus SSL Let's Encrypt otomatis.
-7. Deploy.
+7. **Environment Variable** (centang **Build Variable** karena dipakai saat build):
 
-Tanpa environment variable apa pun.
+   | Nama | Nilai |
+   |---|---|
+   | `NEXT_PUBLIC_APP_URL` | URL aplikasi tracker, mis. `https://app.pintutrack.com` — tujuan tombol "Mulai Gratis" |
+
+8. Deploy.
 
 ## 2. Deploy Aplikasi Tracker
 
@@ -35,6 +39,8 @@ Langkah sama (Base Directory `/pintu-track-app`, Build Pack Dockerfile, port 300
 | `TELEGRAM_BOT_TOKEN` | (opsional) token dari @BotFather |
 | `TELEGRAM_WEBHOOK_SECRET` | (opsional) string acak, mis. `openssl rand -hex 16` |
 | `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | (opsional) username bot tanpa `@` |
+| `GOOGLE_SERVICE_ACCOUNT_EMAIL` | (opsional) untuk sinkronisasi Google Sheets — lihat §4 |
+| `GOOGLE_SERVICE_ACCOUNT_KEY` | (opsional) private key service account (`\n` literal diperbolehkan) |
 
 > Catatan: `Dockerfile` sudah menyediakan placeholder `DATABASE_URL`/`BETTER_AUTH_SECRET` untuk fase build, jadi variabel di atas cukup sebagai **runtime variable** (tidak perlu dicentang sebagai build variable).
 
@@ -46,15 +52,25 @@ curl "https://api.telegram.org/bot<TELEGRAM_BOT_TOKEN>/setWebhook?url=https://ap
 
 Uji: buka Profil di aplikasi → **Hubungkan Telegram** → klik tautan → kirim `Beli kopi 25rb` ke bot.
 
-## 4. Auto-deploy setiap push (opsional)
+## 4. Aktifkan sinkronisasi Google Sheets (opsional)
+
+1. [Google Cloud Console](https://console.cloud.google.com) → buat/pilih project → **APIs & Services** → aktifkan **Google Sheets API**.
+2. **IAM & Admin → Service Accounts** → *Create Service Account* (tanpa role khusus) → tab **Keys** → *Add Key* → **JSON**.
+3. Dari file JSON yang terunduh, salin `client_email` → env `GOOGLE_SERVICE_ACCOUNT_EMAIL`, dan `private_key` → env `GOOGLE_SERVICE_ACCOUNT_KEY` (biarkan `\n` literal apa adanya).
+4. Redeploy aplikasi. Setelah itu setiap user cukup: buka **Profil** → tempel URL spreadsheet → bagikan spreadsheet tsb (akses **Editor**) ke email service account yang tampil di halaman Profil.
+5. Setiap catatan baru (web maupun Telegram) otomatis ditambahkan sebagai baris: `tanggal | keterangan | kategori | jumlah`.
+
+## 5. Auto-deploy setiap push (opsional)
 
 - Repo **public**: aktifkan *Auto Deploy* di Coolify (polling), atau tambahkan webhook GitHub → `https://<coolify-anda>/webhooks/source/github/events` (lihat menu **Webhooks** pada resource).
 - Repo **private** via GitHub App: auto-deploy aktif otomatis setiap push ke branch `main`.
 
-## 5. Checklist pasca-deploy
+## 6. Checklist pasca-deploy
 
 - [ ] `https://app.pintutrack.com/masuk` bisa daftar + login (cookie aman butuh HTTPS — pastikan `BETTER_AUTH_URL` persis sama dengan domain publik).
 - [ ] Catat pengeluaran dari web → muncul di dasbor.
 - [ ] Webhook Telegram terdaftar (`getWebhookInfo` menunjukkan URL benar).
-- [ ] Landing page mengarah ke `https://app.pintutrack.com/masuk` pada tombol CTA (sesuaikan bila domain sudah final).
+- [ ] Tombol CTA landing mengarah ke `<NEXT_PUBLIC_APP_URL>/masuk` (variabel build sudah diisi sebelum build).
+- [ ] (Bila Sheets aktif) catat pengeluaran → baris baru muncul di spreadsheet.
+- [ ] (Bila Telegram + anggaran aktif) catatan web yang melewati 80%/100% batas memicu pesan peringatan dari bot.
 - [ ] Supabase: proyek `PintuTrack` (`lmxxuvkstnfapqtuktvk`) tetap ACTIVE; free tier di-pause bila 7 hari tanpa aktivitas — buka dashboard untuk resume.

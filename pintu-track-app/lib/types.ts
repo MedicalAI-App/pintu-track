@@ -41,4 +41,6 @@ export type Profile = {
   email: string;
   telegramLinked: boolean;
   sheetUrl: string;
+  /** Email service account Google (bila server dikonfigurasi) untuk dibagikan akses sheet */
+  sheetServiceEmail?: string | null;
 };

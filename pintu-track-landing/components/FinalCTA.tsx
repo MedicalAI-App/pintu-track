@@ -1,3 +1,4 @@
+import { SIGNUP_URL } from "@/lib/config";
 import Reveal from "./Reveal";
 
 export default function FinalCTA() {
@@ -16,7 +17,7 @@ export default function FinalCTA() {
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
           <a
-            href="#"
+            href={SIGNUP_URL}
             className="btn-glow rounded-full bg-gradient-to-r from-accent to-accent-soft px-10 py-4 text-lg font-semibold text-background transition-transform hover:scale-105"
           >
             Mulai Gratis Sekarang
