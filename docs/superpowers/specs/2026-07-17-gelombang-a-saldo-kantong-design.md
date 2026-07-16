@@ -51,7 +51,8 @@ Saldo awal dan koreksi saldo dicatat sebagai `income` atau `expense` berkategori
 - **income** bila teks mengandung kata kunci: `gajian, gaji, terima, dapat, masuk, bonus, thr, refund, cashback, dibayar`. Kategori: "Gaji" (gaji/gajian), "Bonus" (bonus/thr/cashback/refund), sisanya "Lainnya".
 - **saving_deposit** bila diawali/mengandung `nabung|tabung|menabung`; **saving_withdrawal** bila `ambil|tarik` + konteks kantong. `pocketQuery` = sisa teks setelah kata kunci & nominal (mis. "liburan").
 - Selain itu → **expense** (perilaku & regex nominal lama tidak berubah: `25000`, `25.000`, `30rb`, `1,5jt`).
-- Resolusi kantong terjadi **server-side** (butuh daftar kantong user): match substring case-insensitive terhadap `pockets.name`; prioritas exact match → satu kandidat dipakai; ≥2 kandidat → minta klarifikasi; 0 kandidat → balas daftar kantong yang ada.
+- Resolusi kantong terjadi **server-side** (butuh daftar kantong user): match substring case-insensitive terhadap `pockets.name`; prioritas exact match → satu kandidat dipakai; ≥2 kandidat → minta klarifikasi.
+- **Fallback anti-salah-tangkap**: `nabung/ambil/tarik` hanya menjadi transaksi kantong bila `pocketQuery` cocok dengan kantong yang ada. Bila 0 kandidat: `nabung ...` → balas daftar kantong (niat menabung jelas), tapi `ambil paket 10rb` → diproses sebagai **expense** biasa (kata "ambil" umum dipakai dalam pengeluaran sehari-hari). Di web, chip tipe di preview selalu bisa dikoreksi manual.
 - **Kantong hanya dibuat lewat web** — chat tidak pernah membuat kantong baru (mencegah typo melahirkan kantong sampah).
 
 ## 4. API
