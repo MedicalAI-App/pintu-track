@@ -6,7 +6,7 @@ import { formatRupiah, isSameDay, isSameMonth } from "@/lib/format";
 import { useAppData } from "@/lib/store";
 
 export default function Anggaran() {
-  const { ready, budget, setBudget, expenses } = useAppData();
+  const { ready, budget, setBudget, transactions } = useAppData();
   const [daily, setDaily] = useState("");
   const [monthly, setMonthly] = useState("");
   const [saved, setSaved] = useState(false);
@@ -20,17 +20,17 @@ export default function Anggaran() {
 
   const totalToday = useMemo(
     () =>
-      expenses
-        .filter((e) => isSameDay(e.date, new Date()))
+      transactions
+        .filter((e) => e.type === "expense" && isSameDay(e.date, new Date()))
         .reduce((s, e) => s + e.amount, 0),
-    [expenses]
+    [transactions]
   );
   const totalMonth = useMemo(
     () =>
-      expenses
-        .filter((e) => isSameMonth(e.date, new Date()))
+      transactions
+        .filter((e) => e.type === "expense" && isSameMonth(e.date, new Date()))
         .reduce((s, e) => s + e.amount, 0),
-    [expenses]
+    [transactions]
   );
 
   async function submit(e: React.FormEvent) {
