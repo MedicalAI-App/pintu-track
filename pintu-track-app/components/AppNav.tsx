@@ -12,6 +12,17 @@ const tabs = [
     ),
   },
   {
+    href: "/kantong",
+    label: "Kantong",
+    icon: (
+      <>
+        <path d="M5 8h14a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2v-8a2 2 0 012-2z" strokeLinejoin="round" />
+        <path d="M16 13h5v4h-5a2 2 0 010-4z" strokeLinejoin="round" />
+        <path d="M7 8l2-4 8 2-1 2" strokeLinecap="round" strokeLinejoin="round" />
+      </>
+    ),
+  },
+  {
     href: "/dasbor",
     label: "Dasbor",
     icon: (
@@ -83,7 +94,7 @@ export default function AppNav() {
 
       {/* Bottom tab bar (mobile) */}
       <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-white/8 bg-background/90 backdrop-blur md:hidden">
-        <div className="mx-auto grid max-w-md grid-cols-4">
+        <div className="mx-auto grid max-w-md grid-cols-5">
           {tabs.map((t) => {
             const active = pathname === t.href;
             return (
