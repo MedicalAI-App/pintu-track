@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   boolean,
   index,
@@ -5,6 +6,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -73,19 +75,39 @@ export const verification = pgTable("verification", {
 
 // ── Tabel domain PintuTrack (cermin PRD) ─────────────────────────
 
-export const expenses = pgTable(
-  "expenses",
+export const pockets = pgTable(
+  "pockets",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    emoji: text("emoji").notNull().default("🎯"),
+    targetAmount: integer("target_amount"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("pockets_user_name_idx").on(t.userId, sql`lower(${t.name})`)]
+);
+
+/** Ledger terpadu: expense | income | saving_deposit | saving_withdrawal. */
+export const transactions = pgTable(
+  "transactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    type: text("type").notNull().default("expense"),
     amount: integer("amount").notNull(),
     description: text("description").notNull(),
     category: text("category").notNull(),
+    pocketId: uuid("pocket_id").references(() => pockets.id, {
+      onDelete: "set null",
+    }),
     date: timestamp("date", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("expenses_user_date_idx").on(t.userId, t.date)]
+  (t) => [index("transactions_user_date_idx").on(t.userId, t.date)]
 );
 
 export const budgets = pgTable("budgets", {

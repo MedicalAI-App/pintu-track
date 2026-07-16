@@ -1,4 +1,5 @@
 import { google } from "googleapis";
+import { TYPE_LABEL, type TransactionType } from "./types";
 
 export function extractSpreadsheetId(url: string): string | null {
   const m = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
@@ -12,13 +13,19 @@ export function sheetsConfigured(): boolean {
 }
 
 /**
- * Tambahkan satu baris pengeluaran ke Google Sheet milik user
+ * Tambahkan satu baris transaksi (semua tipe) ke Google Sheet milik user
  * (service account harus dibagikan akses Editor ke spreadsheet tsb).
  * Senyap bila kredensial server atau URL sheet belum ada.
  */
-export async function appendExpenseToSheet(
+export async function appendTransactionToSheet(
   sheetUrl: string | null | undefined,
-  e: { date: Date | string; description: string; category: string; amount: number }
+  e: {
+    date: Date | string;
+    type: TransactionType | string;
+    description: string;
+    category: string;
+    amount: number;
+  }
 ) {
   const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
   const key = process.env.GOOGLE_SERVICE_ACCOUNT_KEY?.replace(/\\n/g, "\n");
@@ -43,12 +50,15 @@ export async function appendExpenseToSheet(
     minute: "2-digit",
   });
 
+  const tipe =
+    TYPE_LABEL[e.type as TransactionType] ?? String(e.type);
+
   await sheets.spreadsheets.values.append({
     spreadsheetId,
-    range: "A:D",
+    range: "A:E",
     valueInputOption: "USER_ENTERED",
     requestBody: {
-      values: [[tanggal, e.description, e.category, e.amount]],
+      values: [[tanggal, tipe, e.description, e.category, e.amount]],
     },
   });
 }

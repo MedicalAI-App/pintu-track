@@ -1,4 +1,4 @@
-import { CATEGORIES, type Category } from "./types";
+import { CATEGORIES, type Category, type TransactionType } from "./types";
 
 const KEYWORDS: Record<Exclude<Category, "Lainnya">, string[]> = {
   "Makanan & Minuman": [
@@ -40,47 +40,99 @@ export function guessCategory(description: string): Category {
 
 const AMOUNT_RE = /(\d+(?:[.,]\d{3})*(?:[.,]\d+)?)\s*(rb|ribu|k|jt|juta)?/gi;
 
-/**
- * Parse input gaya chat: "Makan siang 30rb" → { amount: 30000, description: "Makan siang" }.
- * Mengambil token angka terakhir; mendukung 25000, 25.000, 30rb, 1,5jt.
- */
-export function parseQuickInput(raw: string): {
+const INCOME_KEYWORDS = [
+  "gajian", "gaji", "terima", "dapat", "masuk", "bonus", "thr",
+  "refund", "cashback", "dibayar",
+];
+
+function incomeCategory(text: string): string {
+  if (/\b(gaji|gajian)\b/.test(text)) return "Gaji";
+  if (/\b(bonus|thr|cashback|refund)\b/.test(text)) return "Bonus";
+  return "Lainnya";
+}
+
+export type ParsedInput = {
+  type: TransactionType;
   amount: number | null;
   description: string;
-  category: Category;
-} {
+  category: string;
+  /** Nama kantong yang dimaksud user (belum divalidasi ke DB) */
+  pocketQuery: string | null;
+};
+
+/**
+ * Parse input gaya chat menjadi transaksi ledger:
+ * "Makan siang 30rb" → expense; "gajian 5jt" → income;
+ * "nabung 100rb liburan" → saving_deposit + pocketQuery.
+ * Nominal mendukung 25000, 25.000, 30rb, 1,5jt (token angka terakhir).
+ */
+export function parseQuickInput(raw: string): ParsedInput {
   const text = raw.trim().replace(/\s+/g, " ");
   let last: RegExpExecArray | null = null;
   for (const m of text.matchAll(AMOUNT_RE)) {
     last = m as unknown as RegExpExecArray;
   }
 
-  if (!last || !last[1]) {
-    return { amount: null, description: text, category: guessCategory(text) };
+  let amount: number | null = null;
+  let description = text;
+
+  if (last?.[1]) {
+    const numRaw = last[1];
+    const suffix = (last[2] ?? "").toLowerCase();
+
+    let value: number;
+    if (/^\d{1,3}(?:\.\d{3})+$/.test(numRaw)) {
+      // Format ribuan Indonesia: 25.000
+      value = parseInt(numRaw.replace(/\./g, ""), 10);
+    } else {
+      value = parseFloat(numRaw.replace(",", "."));
+    }
+
+    if (suffix === "rb" || suffix === "ribu" || suffix === "k") value *= 1_000;
+    if (suffix === "jt" || suffix === "juta") value *= 1_000_000;
+
+    amount = Math.round(value);
+    description =
+      (text.slice(0, last.index) + text.slice(last.index + last[0].length))
+        .replace(/\s+/g, " ")
+        .trim() || "Pengeluaran";
   }
 
-  const numRaw = last[1];
-  const suffix = (last[2] ?? "").toLowerCase();
+  const lower = description.toLowerCase();
 
-  let value: number;
-  if (/^\d{1,3}(?:\.\d{3})+$/.test(numRaw)) {
-    // Format ribuan Indonesia: 25.000
-    value = parseInt(numRaw.replace(/\./g, ""), 10);
-  } else {
-    value = parseFloat(numRaw.replace(",", "."));
+  // Transaksi kantong: "nabung 100rb liburan" / "ambil 50rb dari liburan".
+  // Fallback ambil→expense diputuskan server-side bila kantong tak ditemukan.
+  const savingMatch = text
+    .toLowerCase()
+    .match(/^(nabung|tabung|menabung|ambil|tarik)\b/);
+  if (savingMatch) {
+    const type: TransactionType = ["ambil", "tarik"].includes(savingMatch[1])
+      ? "saving_withdrawal"
+      : "saving_deposit";
+    const pocketQuery =
+      lower
+        .replace(/^(nabung|tabung|menabung|ambil|tarik)\b/, "")
+        .replace(/\b(dari|ke|buat|untuk)\b/g, " ")
+        .replace(/\s+/g, " ")
+        .trim() || null;
+    return { type, amount, description, category: "Tabungan", pocketQuery };
   }
 
-  if (suffix === "rb" || suffix === "ribu" || suffix === "k") value *= 1_000;
-  if (suffix === "jt" || suffix === "juta") value *= 1_000_000;
-
-  const description =
-    (text.slice(0, last.index) + text.slice(last.index + last[0].length))
-      .replace(/\s+/g, " ")
-      .trim() || "Pengeluaran";
+  if (INCOME_KEYWORDS.some((k) => new RegExp(`\\b${k}\\b`).test(lower))) {
+    return {
+      type: "income",
+      amount,
+      description,
+      category: incomeCategory(lower),
+      pocketQuery: null,
+    };
+  }
 
   return {
-    amount: Math.round(value),
+    type: "expense",
+    amount,
     description,
     category: guessCategory(description),
+    pocketQuery: null,
   };
 }

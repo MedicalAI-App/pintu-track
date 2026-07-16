@@ -10,7 +10,13 @@ import {
   type ReactNode,
 } from "react";
 import { useSession } from "./auth-client";
-import type { Budget, Category, Expense, Profile } from "./types";
+import type {
+  Budget,
+  Pocket,
+  Profile,
+  Transaction,
+  TransactionType,
+} from "./types";
 
 const DEFAULT_BUDGET: Budget = { dailyLimit: 0, monthlyLimit: 0 };
 const DEFAULT_PROFILE: Profile = {
@@ -18,6 +24,14 @@ const DEFAULT_PROFILE: Profile = {
   email: "",
   telegramLinked: false,
   sheetUrl: "",
+};
+
+export type Summary = {
+  saldoUtama: number;
+  incomeMonth: number;
+  expenseMonth: number;
+  savedMonth: number;
+  pockets: Pocket[];
 };
 
 async function api<T>(path: string, init?: RequestInit): Promise<T> {
@@ -39,17 +53,26 @@ type Store = {
   ready: boolean;
   /** null = masih memeriksa sesi */
   authed: boolean | null;
-  expenses: Expense[];
-  addExpense: (e: {
+  transactions: Transaction[];
+  summary: Summary | null;
+  addTransaction: (t: {
+    type: TransactionType;
     amount: number;
     description: string;
-    category: Category;
+    category: string;
+    pocketId?: string;
   }) => Promise<void>;
-  updateExpense: (
+  updateTransaction: (
     id: string,
-    patch: Partial<Pick<Expense, "amount" | "description" | "category">>
+    patch: Partial<Pick<Transaction, "amount" | "description" | "category">>
   ) => Promise<void>;
-  deleteExpense: (id: string) => Promise<void>;
+  deleteTransaction: (id: string) => Promise<void>;
+  createPocket: (p: {
+    name: string;
+    emoji: string;
+    targetAmount: number | null;
+  }) => Promise<void>;
+  deletePocket: (id: string) => Promise<void>;
   budget: Budget;
   setBudget: (b: Budget) => Promise<void>;
   profile: Profile;
@@ -68,19 +91,26 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   const [ready, setReady] = useState(false);
-  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
   const [budget, setBudgetState] = useState<Budget>(DEFAULT_BUDGET);
   const [profile, setProfileState] = useState<Profile>(DEFAULT_PROFILE);
 
   const authed = isPending ? null : Boolean(session);
 
+  const refreshSummary = useCallback(async () => {
+    setSummary(await api<Summary>("/api/summary"));
+  }, []);
+
   const refresh = useCallback(async () => {
-    const [e, b, p] = await Promise.all([
-      api<{ expenses: Expense[] }>("/api/expenses?months=6"),
+    const [t, s, b, p] = await Promise.all([
+      api<{ transactions: Transaction[] }>("/api/transactions?months=6"),
+      api<Summary>("/api/summary"),
       api<{ budget: Budget }>("/api/budget"),
       api<{ profile: Profile }>("/api/profile"),
     ]);
-    setExpenses(e.expenses);
+    setTransactions(t.transactions);
+    setSummary(s);
     setBudgetState(b.budget);
     setProfileState(p.profile);
   }, []);
@@ -109,26 +139,59 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     };
   }, [authed, refresh]);
 
-  const addExpense: Store["addExpense"] = useCallback(async (e) => {
-    const { expense } = await api<{ expense: Expense }>("/api/expenses", {
-      method: "POST",
-      body: JSON.stringify(e),
-    });
-    setExpenses((prev) => [expense, ...prev]);
-  }, []);
+  const addTransaction: Store["addTransaction"] = useCallback(
+    async (t) => {
+      const { transaction } = await api<{ transaction: Transaction }>(
+        "/api/transactions",
+        { method: "POST", body: JSON.stringify(t) }
+      );
+      setTransactions((prev) => [transaction, ...prev]);
+      await refreshSummary().catch(() => {});
+    },
+    [refreshSummary]
+  );
 
-  const updateExpense: Store["updateExpense"] = useCallback(async (id, patch) => {
-    const { expense } = await api<{ expense: Expense }>(`/api/expenses/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify(patch),
-    });
-    setExpenses((prev) => prev.map((x) => (x.id === id ? expense : x)));
-  }, []);
+  const updateTransaction: Store["updateTransaction"] = useCallback(
+    async (id, patch) => {
+      const { transaction } = await api<{ transaction: Transaction }>(
+        `/api/transactions/${id}`,
+        { method: "PATCH", body: JSON.stringify(patch) }
+      );
+      setTransactions((prev) => prev.map((x) => (x.id === id ? transaction : x)));
+      await refreshSummary().catch(() => {});
+    },
+    [refreshSummary]
+  );
 
-  const deleteExpense: Store["deleteExpense"] = useCallback(async (id) => {
-    await api(`/api/expenses/${id}`, { method: "DELETE" });
-    setExpenses((prev) => prev.filter((x) => x.id !== id));
-  }, []);
+  const deleteTransaction: Store["deleteTransaction"] = useCallback(
+    async (id) => {
+      await api(`/api/transactions/${id}`, { method: "DELETE" });
+      setTransactions((prev) => prev.filter((x) => x.id !== id));
+      await refreshSummary().catch(() => {});
+    },
+    [refreshSummary]
+  );
+
+  const createPocket: Store["createPocket"] = useCallback(
+    async (p) => {
+      await api("/api/pockets", { method: "POST", body: JSON.stringify(p) });
+      await refreshSummary();
+    },
+    [refreshSummary]
+  );
+
+  const deletePocket: Store["deletePocket"] = useCallback(
+    async (id) => {
+      await api(`/api/pockets/${id}`, { method: "DELETE" });
+      // Pengembalian isi kantong menambah transaksi baru — muat ulang keduanya
+      const t = await api<{ transactions: Transaction[] }>(
+        "/api/transactions?months=6"
+      );
+      setTransactions(t.transactions);
+      await refreshSummary();
+    },
+    [refreshSummary]
+  );
 
   const setBudget: Store["setBudget"] = useCallback(async (b) => {
     const { budget } = await api<{ budget: Budget }>("/api/budget", {
@@ -138,17 +201,14 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setBudgetState(budget);
   }, []);
 
-  const saveProfile: Store["saveProfile"] = useCallback(
-    async (patch) => {
-      await api("/api/profile", { method: "PUT", body: JSON.stringify(patch) });
-      setProfileState((prev) => ({
-        ...prev,
-        name: patch.name ?? prev.name,
-        sheetUrl: patch.sheetUrl ?? prev.sheetUrl,
-      }));
-    },
-    []
-  );
+  const saveProfile: Store["saveProfile"] = useCallback(async (patch) => {
+    await api("/api/profile", { method: "PUT", body: JSON.stringify(patch) });
+    setProfileState((prev) => ({
+      ...prev,
+      name: patch.name ?? prev.name,
+      sheetUrl: patch.sheetUrl ?? prev.sheetUrl,
+    }));
+  }, []);
 
   const linkTelegram: Store["linkTelegram"] = useCallback(async () => {
     return api<{ code: string; link: string | null }>("/api/telegram/link", {
@@ -167,19 +227,23 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, [refresh]);
 
   const clearAll: Store["clearAll"] = useCallback(async () => {
-    await api("/api/expenses", { method: "DELETE" });
-    setExpenses([]);
-  }, []);
+    await api("/api/transactions", { method: "DELETE" });
+    setTransactions([]);
+    await refreshSummary().catch(() => {});
+  }, [refreshSummary]);
 
   return (
     <StoreContext.Provider
       value={{
         ready,
         authed,
-        expenses,
-        addExpense,
-        updateExpense,
-        deleteExpense,
+        transactions,
+        summary,
+        addTransaction,
+        updateTransaction,
+        deleteTransaction,
+        createPocket,
+        deletePocket,
         budget,
         setBudget,
         profile,

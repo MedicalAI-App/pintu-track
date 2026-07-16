@@ -6,13 +6,16 @@ import { formatRupiah, formatShortRupiah, isSameMonth } from "@/lib/format";
 import { useAppData } from "@/lib/store";
 import { CATEGORY_EMOJI, type Category } from "@/lib/types";
 
-function monthlySeries(expenses: { amount: number; date: string }[], n = 6) {
+function monthlySeries(
+  rows: { amount: number; date: string; type: string }[],
+  n = 6
+) {
   const now = new Date();
   const out: { label: string; total: number }[] = [];
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const total = expenses
-      .filter((e) => isSameMonth(e.date, d))
+    const total = rows
+      .filter((e) => e.type === "expense" && isSameMonth(e.date, d))
       .reduce((s, e) => s + e.amount, 0);
     out.push({
       label: d.toLocaleDateString("id-ID", { month: "short" }),
@@ -23,28 +26,31 @@ function monthlySeries(expenses: { amount: number; date: string }[], n = 6) {
 }
 
 export default function Dasbor() {
-  const { ready, expenses, budget, seedDemo } = useAppData();
+  const { ready, transactions, budget, seedDemo, summary } = useAppData();
   const now = new Date();
 
   const monthExpenses = useMemo(
-    () => expenses.filter((e) => isSameMonth(e.date, new Date())),
-    [expenses]
+    () =>
+      transactions.filter(
+        (t) => t.type === "expense" && isSameMonth(t.date, new Date())
+      ),
+    [transactions]
   );
   const totalMonth = monthExpenses.reduce((s, e) => s + e.amount, 0);
   const avgDaily = Math.round(totalMonth / Math.max(now.getDate(), 1));
 
-  const series = useMemo(() => monthlySeries(expenses), [expenses]);
+  const series = useMemo(() => monthlySeries(transactions), [transactions]);
   const maxSeries = Math.max(...series.map((s) => s.total), 1);
 
   const byCategory = useMemo(() => {
-    const map = new Map<Category, number>();
+    const map = new Map<string, number>();
     for (const e of monthExpenses) {
       map.set(e.category, (map.get(e.category) ?? 0) + e.amount);
     }
     return [...map.entries()].sort((a, b) => b[1] - a[1]);
   }, [monthExpenses]);
 
-  if (ready && expenses.length === 0) {
+  if (ready && transactions.length === 0) {
     return (
       <div className="flex flex-col gap-6">
         <h1 className="text-2xl font-bold tracking-tight">Dasbor Keuangan</h1>
@@ -76,17 +82,39 @@ export default function Dasbor() {
       </div>
 
       {/* Kartu ringkasan */}
-      <section className="grid gap-3 sm:grid-cols-3">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         <div className="glass rounded-2xl p-5">
-          <p className="text-xs text-muted">Total bulan ini</p>
+          <p className="text-xs text-muted">Pengeluaran bulan ini</p>
           <p className="mt-1 text-xl font-bold tabular-nums tracking-tight">
             {formatRupiah(totalMonth)}
+          </p>
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <p className="text-xs text-muted">Pemasukan bulan ini</p>
+          <p className="mt-1 text-xl font-bold tabular-nums tracking-tight text-accent">
+            {summary ? formatRupiah(summary.incomeMonth) : "—"}
+          </p>
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <p className="text-xs text-muted">Ditabung bulan ini</p>
+          <p className="mt-1 text-xl font-bold tabular-nums tracking-tight text-sky-300">
+            {summary ? formatRupiah(summary.savedMonth) : "—"}
           </p>
         </div>
         <div className="glass rounded-2xl p-5">
           <p className="text-xs text-muted">Rata-rata per hari</p>
           <p className="mt-1 text-xl font-bold tabular-nums tracking-tight">
             {formatRupiah(avgDaily)}
+          </p>
+        </div>
+        <div className="glass rounded-2xl p-5">
+          <p className="text-xs text-muted">Saldo Utama</p>
+          <p
+            className={`mt-1 text-xl font-bold tabular-nums tracking-tight ${
+              (summary?.saldoUtama ?? 0) < 0 ? "text-danger" : ""
+            }`}
+          >
+            {summary ? formatRupiah(summary.saldoUtama) : "—"}
           </p>
         </div>
         <div className="glass rounded-2xl p-5">
@@ -161,7 +189,7 @@ export default function Dasbor() {
                 <div key={cat}>
                   <div className="mb-1.5 flex justify-between text-sm">
                     <span>
-                      {CATEGORY_EMOJI[cat]} {cat}
+                      {CATEGORY_EMOJI[cat as Category] ?? "📦"} {cat}
                     </span>
                     <span className="tabular-nums text-muted">
                       {formatRupiah(total)} · {Math.round(pct)}%
