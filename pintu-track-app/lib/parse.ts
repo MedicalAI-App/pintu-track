@@ -51,6 +51,67 @@ function incomeCategory(text: string): string {
   return "Lainnya";
 }
 
+/** Ambil token nominal terakhir dari teks; rest = teks tanpa token itu. */
+function extractAmount(text: string): { amount: number | null; rest: string } {
+  let last: RegExpExecArray | null = null;
+  for (const m of text.matchAll(AMOUNT_RE)) {
+    last = m as unknown as RegExpExecArray;
+  }
+  if (!last?.[1]) return { amount: null, rest: text };
+
+  const numRaw = last[1];
+  const suffix = (last[2] ?? "").toLowerCase();
+
+  let value: number;
+  if (/^\d{1,3}(?:\.\d{3})+$/.test(numRaw)) {
+    // Format ribuan Indonesia: 25.000
+    value = parseInt(numRaw.replace(/\./g, ""), 10);
+  } else {
+    value = parseFloat(numRaw.replace(",", "."));
+  }
+
+  if (suffix === "rb" || suffix === "ribu" || suffix === "k") value *= 1_000;
+  if (suffix === "jt" || suffix === "juta") value *= 1_000_000;
+
+  const rest = (text.slice(0, last.index) + text.slice(last.index + last[0].length))
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return { amount: Math.round(value), rest };
+}
+
+export type ParsedReminder = {
+  description: string;
+  amount: number;
+  dayOfMonth: number;
+};
+
+/**
+ * Parse perintah pengingat tagihan:
+ * "ingatkan kos 1,5jt tiap tanggal 1" → { description: "kos", amount: 1500000, dayOfMonth: 1 }.
+ * Wajib ada nominal dan "tanggal <1-31>"; selain itu null.
+ */
+export function parseReminder(raw: string): ParsedReminder | null {
+  const text = raw.trim().replace(/\s+/g, " ");
+  const m = text.match(/^ingatkan\b\s*(.*)$/i);
+  if (!m) return null;
+
+  let rest = m[1];
+  const tgl = rest.match(/\b(?:setiap|tiap)?\s*(?:tanggal|tgl)\s+(\d{1,2})\b/i);
+  if (!tgl) return null;
+  const dayOfMonth = parseInt(tgl[1], 10);
+  if (dayOfMonth < 1 || dayOfMonth > 31) return null;
+
+  rest = (rest.slice(0, tgl.index) + rest.slice(tgl.index! + tgl[0].length))
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const { amount, rest: description } = extractAmount(rest);
+  if (!amount || amount <= 0 || !description) return null;
+
+  return { description, amount, dayOfMonth };
+}
+
 export type ParsedInput = {
   type: TransactionType;
   amount: number | null;
@@ -68,35 +129,9 @@ export type ParsedInput = {
  */
 export function parseQuickInput(raw: string): ParsedInput {
   const text = raw.trim().replace(/\s+/g, " ");
-  let last: RegExpExecArray | null = null;
-  for (const m of text.matchAll(AMOUNT_RE)) {
-    last = m as unknown as RegExpExecArray;
-  }
-
-  let amount: number | null = null;
-  let description = text;
-
-  if (last?.[1]) {
-    const numRaw = last[1];
-    const suffix = (last[2] ?? "").toLowerCase();
-
-    let value: number;
-    if (/^\d{1,3}(?:\.\d{3})+$/.test(numRaw)) {
-      // Format ribuan Indonesia: 25.000
-      value = parseInt(numRaw.replace(/\./g, ""), 10);
-    } else {
-      value = parseFloat(numRaw.replace(",", "."));
-    }
-
-    if (suffix === "rb" || suffix === "ribu" || suffix === "k") value *= 1_000;
-    if (suffix === "jt" || suffix === "juta") value *= 1_000_000;
-
-    amount = Math.round(value);
-    description =
-      (text.slice(0, last.index) + text.slice(last.index + last[0].length))
-        .replace(/\s+/g, " ")
-        .trim() || "Pengeluaran";
-  }
+  const extracted = extractAmount(text);
+  const amount = extracted.amount;
+  const description = amount !== null ? extracted.rest || "Pengeluaran" : text;
 
   const lower = description.toLowerCase();
 
