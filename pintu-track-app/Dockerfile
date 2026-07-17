@@ -2,7 +2,9 @@
 FROM node:22-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+# Samakan npm dengan versi pembuat lockfile (npm 11) — npm 10 bawaan image
+# salah menangani optional dep per-platform (EBADPLATFORM @esbuild/*)
+RUN npm install -g npm@11 && npm ci
 
 # ── Build ────────────────────────────────────────────────────────
 FROM node:22-alpine AS builder
