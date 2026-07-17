@@ -14,6 +14,7 @@ import type {
   Budget,
   Pocket,
   Profile,
+  Reminder,
   Transaction,
   TransactionType,
 } from "./types";
@@ -73,6 +74,14 @@ type Store = {
     targetAmount: number | null;
   }) => Promise<void>;
   deletePocket: (id: string) => Promise<void>;
+  reminders: Reminder[];
+  createReminder: (r: {
+    description: string;
+    amount: number;
+    dayOfMonth: number;
+  }) => Promise<void>;
+  updateReminder: (id: string, patch: Partial<Reminder>) => Promise<void>;
+  deleteReminder: (id: string) => Promise<void>;
   budget: Budget;
   setBudget: (b: Budget) => Promise<void>;
   profile: Profile;
@@ -95,6 +104,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [budget, setBudgetState] = useState<Budget>(DEFAULT_BUDGET);
   const [profile, setProfileState] = useState<Profile>(DEFAULT_PROFILE);
+  const [remindersState, setReminders] = useState<Reminder[]>([]);
 
   const authed = isPending ? null : Boolean(session);
 
@@ -103,16 +113,18 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [t, s, b, p] = await Promise.all([
+    const [t, s, b, p, r] = await Promise.all([
       api<{ transactions: Transaction[] }>("/api/transactions?months=6"),
       api<Summary>("/api/summary"),
       api<{ budget: Budget }>("/api/budget"),
       api<{ profile: Profile }>("/api/profile"),
+      api<{ reminders: Reminder[] }>("/api/reminders"),
     ]);
     setTransactions(t.transactions);
     setSummary(s);
     setBudgetState(b.budget);
     setProfileState(p.profile);
+    setReminders(r.reminders);
   }, []);
 
   // Redirect ke /masuk bila belum login (kecuali sedang di /masuk)
@@ -193,6 +205,27 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     [refreshSummary]
   );
 
+  const createReminder: Store["createReminder"] = useCallback(async (r) => {
+    const { reminder } = await api<{ reminder: Reminder }>("/api/reminders", {
+      method: "POST",
+      body: JSON.stringify(r),
+    });
+    setReminders((prev) => [reminder, ...prev]);
+  }, []);
+
+  const updateReminder: Store["updateReminder"] = useCallback(async (id, patch) => {
+    const { reminder } = await api<{ reminder: Reminder }>(`/api/reminders/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    });
+    setReminders((prev) => prev.map((x) => (x.id === id ? reminder : x)));
+  }, []);
+
+  const deleteReminder: Store["deleteReminder"] = useCallback(async (id) => {
+    await api(`/api/reminders/${id}`, { method: "DELETE" });
+    setReminders((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
   const setBudget: Store["setBudget"] = useCallback(async (b) => {
     const { budget } = await api<{ budget: Budget }>("/api/budget", {
       method: "PUT",
@@ -244,6 +277,10 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         deleteTransaction,
         createPocket,
         deletePocket,
+        reminders: remindersState,
+        createReminder,
+        updateReminder,
+        deleteReminder,
         budget,
         setBudget,
         profile,

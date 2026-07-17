@@ -63,6 +63,15 @@ export type Pocket = {
   balance: number;
 };
 
+/** Pengingat tagihan berulang (dikirim bot tiap tanggal N). */
+export type Reminder = {
+  id: string;
+  description: string;
+  amount: number;
+  dayOfMonth: number;
+  active: boolean;
+};
+
 /** Cermin tabel BUDGETS pada PRD. */
 export type Budget = {
   dailyLimit: number;
