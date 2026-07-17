@@ -1,14 +1,51 @@
 import { formatRupiah } from "./format";
 
-/** Kirim pesan ke chat Telegram; senyap bila token belum dikonfigurasi. */
-export async function sendTelegramMessage(chatId: number | string, text: string) {
+async function tgCall(method: string, payload: Record<string, unknown>) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return;
-  await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+  await fetch(`https://api.telegram.org/bot${token}/${method}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text }),
+    body: JSON.stringify(payload),
   }).catch(() => {});
+}
+
+/** Kirim pesan ke chat Telegram; senyap bila token belum dikonfigurasi. */
+export async function sendTelegramMessage(chatId: number | string, text: string) {
+  await tgCall("sendMessage", { chat_id: chatId, text });
+}
+
+/** Kirim pesan dengan satu tombol inline (mis. "✅ Bayar & catat"). */
+export async function sendTelegramMessageWithButton(
+  chatId: number | string,
+  text: string,
+  button: { text: string; callbackData: string }
+) {
+  await tgCall("sendMessage", {
+    chat_id: chatId,
+    text,
+    reply_markup: {
+      inline_keyboard: [[{ text: button.text, callback_data: button.callbackData }]],
+    },
+  });
+}
+
+/** Balas callback query (toast kecil di Telegram). */
+export async function answerCallbackQuery(id: string, text?: string) {
+  await tgCall("answerCallbackQuery", { callback_query_id: id, text });
+}
+
+/** Edit teks pesan lama (sekaligus menghapus tombolnya). */
+export async function editMessageText(
+  chatId: number | string,
+  messageId: number,
+  text: string
+) {
+  await tgCall("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+  });
 }
 
 type WarningInput = {
