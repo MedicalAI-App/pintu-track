@@ -1,5 +1,55 @@
-import { describe, expect, test } from "vitest";
-import { buildParsePrompt, parseAiJson } from "@/lib/ai";
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { aiParseText, buildParsePrompt, parseAiJson } from "@/lib/ai";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+function geminiOk(json: object) {
+  return {
+    ok: true,
+    json: async () => ({
+      candidates: [{ content: { parts: [{ text: JSON.stringify(json) }] } }],
+    }),
+  };
+}
+
+describe("aiParseText — ketahanan 503", () => {
+  test("503 di flash → fallback model kedua berhasil", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "kunci-uji");
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        calls.push(String(url));
+        if (calls.length === 1) return { ok: false, status: 503 };
+        return geminiOk({
+          type: "expense",
+          amount: 85000,
+          description: "Traktir ngopi",
+          category: "Makanan & Minuman",
+        });
+      })
+    );
+    const r = await aiParseText("traktir ngopi delapan puluh lima ribu");
+    expect(r?.amount).toBe(85000);
+    expect(calls.length).toBe(2);
+    expect(calls[1]).toContain("flash-lite");
+  });
+  test("semua percobaan gagal → null (tanpa lempar error)", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "kunci-uji");
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 503 })));
+    expect(await aiParseText("apa saja")).toBeNull();
+  });
+  test("tanpa GEMINI_API_KEY → null tanpa memanggil fetch", async () => {
+    vi.stubEnv("GEMINI_API_KEY", "");
+    const f = vi.fn();
+    vi.stubGlobal("fetch", f);
+    expect(await aiParseText("apa saja")).toBeNull();
+    expect(f).not.toHaveBeenCalled();
+  });
+});
 
 describe("buildParsePrompt", () => {
   test("memuat teks user dan daftar kategori", () => {

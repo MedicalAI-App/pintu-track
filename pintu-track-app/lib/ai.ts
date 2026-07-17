@@ -5,7 +5,8 @@ import { CATEGORIES, INCOME_CATEGORIES } from "./types";
  * Tanpa GEMINI_API_KEY seluruh fungsi jaringan mengembalikan null (senyap).
  */
 
-const MODEL = "gemini-flash-latest";
+/** Urutan percobaan: flash dulu; bila 503/429 (overload/kuota) → flash-lite. */
+const MODELS = ["gemini-flash-latest", "gemini-flash-lite-latest"];
 
 export type AiParsed = {
   type: "expense" | "income";
@@ -78,37 +79,45 @@ async function callGemini(
 ): Promise<AiParsed | null> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) return null;
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-goog-api-key": key,
-        },
-        body: JSON.stringify({
-          contents: [{ parts }],
-          generationConfig: {
-            responseMimeType: "application/json",
-            temperature: 0.1,
+
+  for (const model of MODELS) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-goog-api-key": key,
           },
-        }),
-        signal: AbortSignal.timeout(20_000),
+          body: JSON.stringify({
+            contents: [{ parts }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              temperature: 0.1,
+            },
+          }),
+          signal: AbortSignal.timeout(20_000),
+        }
+      );
+      if (!res.ok) {
+        // Overload/kuota → coba model berikutnya; error lain → berhenti
+        if (res.status === 503 || res.status === 429) continue;
+        return null;
       }
-    );
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    };
-    const text = data.candidates?.[0]?.content?.parts
-      ?.map((p) => p.text ?? "")
-      .join("");
-    if (!text) return null;
-    return parseAiJson(text);
-  } catch {
-    return null;
+      const data = (await res.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[];
+      };
+      const text = data.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text ?? "")
+        .join("");
+      if (!text) return null;
+      return parseAiJson(text);
+    } catch {
+      continue;
+    }
   }
+  return null;
 }
 
 /** Tebak transaksi dari teks bebas. */
