@@ -30,6 +30,53 @@ export async function sendTelegramMessageWithButton(
   });
 }
 
+/** Kirim pesan dengan satu baris tombol inline (mis. ✅ Catat / ❌ Batal). */
+export async function sendTelegramMessageWithButtons(
+  chatId: number | string,
+  text: string,
+  buttons: { text: string; callbackData: string }[]
+) {
+  await tgCall("sendMessage", {
+    chat_id: chatId,
+    text,
+    reply_markup: {
+      inline_keyboard: [
+        buttons.map((b) => ({ text: b.text, callback_data: b.callbackData })),
+      ],
+    },
+  });
+}
+
+/** Unduh file Telegram (foto struk). null bila token kosong/gagal/terlalu besar. */
+export async function getTelegramFile(
+  fileId: string,
+  maxBytes = 4 * 1024 * 1024
+): Promise<{ base64: string; mimeType: string } | null> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return null;
+  try {
+    const info = await fetch(
+      `https://api.telegram.org/bot${token}/getFile`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ file_id: fileId }),
+      }
+    ).then((r) => r.json());
+    const path: string | undefined = info?.result?.file_path;
+    const size: number = info?.result?.file_size ?? 0;
+    if (!path || size > maxBytes) return null;
+
+    const res = await fetch(`https://api.telegram.org/file/bot${token}/${path}`);
+    if (!res.ok) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    const mimeType = path.endsWith(".png") ? "image/png" : "image/jpeg";
+    return { base64: buf.toString("base64"), mimeType };
+  } catch {
+    return null;
+  }
+}
+
 /** Balas callback query (toast kecil di Telegram). */
 export async function answerCallbackQuery(id: string, text?: string) {
   await tgCall("answerCallbackQuery", { callback_query_id: id, text });
