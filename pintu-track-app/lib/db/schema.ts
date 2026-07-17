@@ -133,6 +133,23 @@ export const jobRuns = pgTable("job_runs", {
   lastRunAt: timestamp("last_run_at", { withTimezone: true }).notNull(),
 });
 
+/** Tebakan AI yang menunggu konfirmasi user via tombol Telegram. */
+export const aiSuggestions = pgTable(
+  "ai_suggestions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    amount: integer("amount").notNull(),
+    description: text("description").notNull(),
+    category: text("category").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ai_suggestions_user_idx").on(t.userId)]
+);
+
 export const budgets = pgTable("budgets", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")

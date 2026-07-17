@@ -1,7 +1,13 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, lt } from "drizzle-orm";
 import { NextResponse } from "next/server";
+import { aiConfigured, aiParseReceipt, aiParseText, type AiParsed } from "@/lib/ai";
 import { db } from "@/lib/db";
-import { reminders, transactions, user as userTable } from "@/lib/db/schema";
+import {
+  aiSuggestions,
+  reminders,
+  transactions,
+  user as userTable,
+} from "@/lib/db/schema";
 import { formatRupiah } from "@/lib/format";
 import { parseQuickInput, parseReminder, type ParsedInput } from "@/lib/parse";
 import { appendTransactionToSheet } from "@/lib/sheets";
@@ -9,11 +15,135 @@ import { pocketBalance, resolvePocket, summaryFor, totalsFor } from "@/lib/stats
 import {
   answerCallbackQuery,
   editMessageText,
+  getTelegramFile,
+  maybeSendBudgetWarning,
   sendTelegramMessage,
+  sendTelegramMessageWithButtons,
 } from "@/lib/telegram";
 import { CATEGORY_EMOJI, type Category } from "@/lib/types";
 
 type Owner = { id: string; googleSheetUrl: string | null };
+
+/** Simpan tebakan AI + kirim pesan konfirmasi bertombol. */
+async function offerAiSuggestion(
+  owner: Owner,
+  chatId: number,
+  ai: AiParsed,
+  prefix: string
+) {
+  // Bersihkan tebakan kedaluwarsa (>24 jam) milik user
+  const dayAgo = new Date(Date.now() - 24 * 3600 * 1000);
+  await db
+    .delete(aiSuggestions)
+    .where(
+      and(eq(aiSuggestions.userId, owner.id), lt(aiSuggestions.createdAt, dayAgo))
+    );
+
+  const [row] = await db
+    .insert(aiSuggestions)
+    .values({ userId: owner.id, ...ai })
+    .returning();
+
+  const emoji =
+    ai.type === "income"
+      ? "💰"
+      : (CATEGORY_EMOJI[ai.category as Category] ?? "📦");
+  await sendTelegramMessageWithButtons(
+    chatId,
+    `${prefix}: ${ai.description} — ${ai.type === "income" ? "+" : ""}${formatRupiah(ai.amount)} (${emoji} ${ai.category})?`,
+    [
+      { text: "✅ Catat", callbackData: `aiok:${row.id}` },
+      { text: "❌ Batal", callbackData: `aino:${row.id}` },
+    ]
+  );
+}
+
+/** Tombol konfirmasi tebakan AI → catat atau batalkan. */
+async function handleAiCallback(cb: {
+  id: string;
+  data?: string;
+  message?: { chat?: { id?: number }; message_id?: number };
+}) {
+  const data = cb.data ?? "";
+  const chatId = cb.message?.chat?.id;
+  const messageId = cb.message?.message_id;
+  const suggestionId = data.slice(5);
+  if (!chatId) {
+    await answerCallbackQuery(cb.id);
+    return;
+  }
+
+  const [row] = await db
+    .select({
+      id: aiSuggestions.id,
+      type: aiSuggestions.type,
+      amount: aiSuggestions.amount,
+      description: aiSuggestions.description,
+      category: aiSuggestions.category,
+      userId: aiSuggestions.userId,
+      telegramId: userTable.telegramId,
+      googleSheetUrl: userTable.googleSheetUrl,
+    })
+    .from(aiSuggestions)
+    .innerJoin(userTable, eq(userTable.id, aiSuggestions.userId))
+    .where(eq(aiSuggestions.id, suggestionId))
+    .limit(1);
+
+  if (!row || row.telegramId !== String(chatId)) {
+    await answerCallbackQuery(cb.id, "Kedaluwarsa — kirim ulang pesannya ya.");
+    return;
+  }
+
+  await db.delete(aiSuggestions).where(eq(aiSuggestions.id, row.id));
+
+  if (data.startsWith("aino:")) {
+    await answerCallbackQuery(cb.id, "Dibatalkan.");
+    if (messageId) {
+      await editMessageText(chatId, messageId, "❌ Dibatalkan — tidak dicatat.");
+    }
+    return;
+  }
+
+  const [trx] = await db
+    .insert(transactions)
+    .values({
+      userId: row.userId,
+      type: row.type as "expense" | "income",
+      amount: row.amount,
+      description: row.description,
+      category: row.category,
+    })
+    .returning();
+  await appendTransactionToSheet(row.googleSheetUrl, trx).catch(() => {});
+
+  await answerCallbackQuery(cb.id, "Tercatat!");
+  const { totalToday, totalMonth, budget, saldo } = await totalsFor(row.userId);
+  if (messageId) {
+    const emoji =
+      row.type === "income"
+        ? "💰"
+        : (CATEGORY_EMOJI[row.category as Category] ?? "📦");
+    await editMessageText(
+      chatId,
+      messageId,
+      `✅ Tercatat: ${row.type === "income" ? "+" : ""}${formatRupiah(row.amount)} — ${row.description} (${emoji} ${row.category}).\n${
+        row.type === "income"
+          ? `Saldo Utama: ${formatRupiah(saldo)}`
+          : `Total hari ini: ${formatRupiah(totalToday)}`
+      }`
+    );
+  }
+  if (row.type === "expense" && budget) {
+    await maybeSendBudgetWarning({
+      chatId: String(chatId),
+      amount: row.amount,
+      totalToday,
+      totalMonth,
+      dailyLimit: budget.dailyLimit,
+      monthlyLimit: budget.monthlyLimit,
+    }).catch(() => {});
+  }
+}
 
 /** Tombol "✅ Bayar & catat" pada pengingat → catat expense Tagihan. */
 async function handlePayCallback(cb: {
@@ -197,19 +327,26 @@ export async function POST(req: Request) {
 
   const update = await req.json().catch(() => null);
 
-  // ── Tombol inline "Bayar & catat" (callback_query) ────────────
+  // ── Tombol inline (callback_query): pay:/aiok:/aino: ─────────
   const cb = update?.callback_query;
   if (cb) {
-    await handlePayCallback(cb).catch(() => {});
+    const data: string = cb.data ?? "";
+    if (data.startsWith("pay:")) await handlePayCallback(cb).catch(() => {});
+    else if (data.startsWith("aiok:") || data.startsWith("aino:"))
+      await handleAiCallback(cb).catch(() => {});
+    else await answerCallbackQuery(cb.id).catch(() => {});
     return NextResponse.json({ ok: true });
   }
 
   const message = update?.message;
   const chatId: number | undefined = message?.chat?.id;
   const text: string = (message?.text ?? "").trim();
+  const photos: { file_id: string }[] | undefined = message?.photo;
 
   // Selalu balas 200 agar Telegram tidak mengulang kiriman
-  if (!chatId || !text) return NextResponse.json({ ok: true });
+  if (!chatId || (!text && !photos?.length)) {
+    return NextResponse.json({ ok: true });
+  }
 
   // ── /start <kode> : tautkan akun ──────────────────────────────
   if (text.startsWith("/start")) {
@@ -252,6 +389,30 @@ export async function POST(req: Request) {
       chatId,
       "Akunmu belum tertaut. Buka halaman Profil di aplikasi PintuTrack lalu klik “Hubungkan Telegram”."
     );
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── Foto struk → Gemini vision → konfirmasi ──────────────────
+  if (photos?.length) {
+    if (!aiConfigured()) {
+      await sendTelegramMessage(
+        chatId,
+        "Fitur baca struk belum aktif di server. Catat manual dulu ya, mis. “belanja indomaret 54rb”."
+      );
+      return NextResponse.json({ ok: true });
+    }
+    const file = await getTelegramFile(photos[photos.length - 1].file_id);
+    const parsed = file
+      ? await aiParseReceipt(file.base64, file.mimeType)
+      : null;
+    if (!parsed) {
+      await sendTelegramMessage(
+        chatId,
+        "Struknya belum terbaca 😅 Coba foto ulang yang lebih jelas (total harus terlihat), atau catat manual."
+      );
+      return NextResponse.json({ ok: true });
+    }
+    await offerAiSuggestion(owner, chatId, parsed, "🧾 Dari struk");
     return NextResponse.json({ ok: true });
   }
 
@@ -323,6 +484,14 @@ export async function POST(req: Request) {
   // ── Transaksi dari teks bebas ─────────────────────────────────
   const parsed = parseQuickInput(text);
   if (!parsed.amount) {
+    // Regex gagal → coba AI (bila dikonfigurasi), dengan konfirmasi
+    if (aiConfigured()) {
+      const ai = await aiParseText(text);
+      if (ai) {
+        await offerAiSuggestion(owner, chatId, ai, "🤖 Maksudmu");
+        return NextResponse.json({ ok: true });
+      }
+    }
     await sendTelegramMessage(
       chatId,
       "Aku belum menangkap nominalnya. Contoh:\n“Makan siang 30rb”, “gajian 5jt”, “nabung 100rb liburan”."
