@@ -110,6 +110,29 @@ export const transactions = pgTable(
   (t) => [index("transactions_user_date_idx").on(t.userId, t.date)]
 );
 
+/** Pengingat tagihan berulang (dikirim via bot tiap tanggal N, 07:00 WIB). */
+export const reminders = pgTable(
+  "reminders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    description: text("description").notNull(),
+    amount: integer("amount").notNull(),
+    dayOfMonth: integer("day_of_month").notNull(),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("reminders_user_idx").on(t.userId)]
+);
+
+/** Kapan tiap job penjadwal terakhir jalan — cegah kiriman ganda pasca-restart. */
+export const jobRuns = pgTable("job_runs", {
+  job: text("job").primaryKey(),
+  lastRunAt: timestamp("last_run_at", { withTimezone: true }).notNull(),
+});
+
 export const budgets = pgTable("budgets", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: text("user_id")

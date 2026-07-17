@@ -1,15 +1,75 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { transactions, user as userTable } from "@/lib/db/schema";
+import { reminders, transactions, user as userTable } from "@/lib/db/schema";
 import { formatRupiah } from "@/lib/format";
-import { parseQuickInput, type ParsedInput } from "@/lib/parse";
+import { parseQuickInput, parseReminder, type ParsedInput } from "@/lib/parse";
 import { appendTransactionToSheet } from "@/lib/sheets";
 import { pocketBalance, resolvePocket, summaryFor, totalsFor } from "@/lib/stats";
-import { sendTelegramMessage } from "@/lib/telegram";
+import {
+  answerCallbackQuery,
+  editMessageText,
+  sendTelegramMessage,
+} from "@/lib/telegram";
 import { CATEGORY_EMOJI, type Category } from "@/lib/types";
 
 type Owner = { id: string; googleSheetUrl: string | null };
+
+/** Tombol "✅ Bayar & catat" pada pengingat → catat expense Tagihan. */
+async function handlePayCallback(cb: {
+  id: string;
+  data?: string;
+  message?: { chat?: { id?: number }; message_id?: number };
+}) {
+  const data = cb.data ?? "";
+  const chatId = cb.message?.chat?.id;
+  const messageId = cb.message?.message_id;
+  if (!data.startsWith("pay:") || !chatId) {
+    await answerCallbackQuery(cb.id);
+    return;
+  }
+
+  const reminderId = data.slice(4);
+  const [row] = await db
+    .select({
+      id: reminders.id,
+      description: reminders.description,
+      amount: reminders.amount,
+      userId: reminders.userId,
+      googleSheetUrl: userTable.googleSheetUrl,
+      telegramId: userTable.telegramId,
+    })
+    .from(reminders)
+    .innerJoin(userTable, eq(userTable.id, reminders.userId))
+    .where(eq(reminders.id, reminderId))
+    .limit(1);
+
+  if (!row || row.telegramId !== String(chatId)) {
+    await answerCallbackQuery(cb.id, "Pengingat tidak ditemukan.");
+    return;
+  }
+
+  const [trx] = await db
+    .insert(transactions)
+    .values({
+      userId: row.userId,
+      type: "expense",
+      amount: row.amount,
+      description: row.description,
+      category: "Tagihan",
+    })
+    .returning();
+  await appendTransactionToSheet(row.googleSheetUrl, trx).catch(() => {});
+
+  await answerCallbackQuery(cb.id, "Tercatat!");
+  if (messageId) {
+    await editMessageText(
+      chatId,
+      messageId,
+      `✅ ${row.description} ${formatRupiah(row.amount)} sudah dibayar & tercatat (🧾 Tagihan).`
+    );
+  }
+}
 
 function pocketLine(p: { emoji: string; name: string; balance: number; targetAmount: number | null }) {
   const progress = p.targetAmount
@@ -136,6 +196,14 @@ export async function POST(req: Request) {
   }
 
   const update = await req.json().catch(() => null);
+
+  // ── Tombol inline "Bayar & catat" (callback_query) ────────────
+  const cb = update?.callback_query;
+  if (cb) {
+    await handlePayCallback(cb).catch(() => {});
+    return NextResponse.json({ ok: true });
+  }
+
   const message = update?.message;
   const chatId: number | undefined = message?.chat?.id;
   const text: string = (message?.text ?? "").trim();
@@ -183,6 +251,41 @@ export async function POST(req: Request) {
     await sendTelegramMessage(
       chatId,
       "Akunmu belum tertaut. Buka halaman Profil di aplikasi PintuTrack lalu klik “Hubungkan Telegram”."
+    );
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── Perintah: daftar pengingat ────────────────────────────────
+  if (/^pengingat$/i.test(text)) {
+    const rows = await db
+      .select()
+      .from(reminders)
+      .where(and(eq(reminders.userId, owner.id), eq(reminders.active, true)));
+    await sendTelegramMessage(
+      chatId,
+      rows.length
+        ? `Pengingat aktifmu:\n${rows
+            .map((r) => `⏰ ${r.description} — ${formatRupiah(r.amount)} (tiap tanggal ${r.dayOfMonth})`)
+            .join("\n")}`
+        : "Belum ada pengingat. Buat dengan:\n“ingatkan kos 1,5jt tiap tanggal 1”"
+    );
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── Buat pengingat: "ingatkan kos 1,5jt tiap tanggal 1" ──────
+  if (/^ingatkan\b/i.test(text)) {
+    const parsed = parseReminder(text);
+    if (!parsed) {
+      await sendTelegramMessage(
+        chatId,
+        "Formatnya: “ingatkan <nama> <nominal> tiap tanggal <1-31>”.\nContoh: ingatkan kos 1,5jt tiap tanggal 1"
+      );
+      return NextResponse.json({ ok: true });
+    }
+    await db.insert(reminders).values({ userId: owner.id, ...parsed });
+    await sendTelegramMessage(
+      chatId,
+      `⏰ Pengingat dibuat: ${parsed.description} — ${formatRupiah(parsed.amount)} tiap tanggal ${parsed.dayOfMonth}.\nAku akan mengingatkanmu jam 07:00 WIB dengan tombol catat sekali tap. Ketik “pengingat” untuk melihat semua.`
     );
     return NextResponse.json({ ok: true });
   }
