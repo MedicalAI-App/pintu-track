@@ -65,7 +65,18 @@ Uji: buka Profil di aplikasi → **Hubungkan Telegram** → klik tautan → kiri
 - Repo **public**: aktifkan *Auto Deploy* di Coolify (polling), atau tambahkan webhook GitHub → `https://<coolify-anda>/webhooks/source/github/events` (lihat menu **Webhooks** pada resource).
 - Repo **private** via GitHub App: auto-deploy aktif otomatis setiap push ke branch `main`.
 
-## 6. Checklist pasca-deploy
+## 6. Migrasi database (riwayat)
+
+| File | Isi | Status |
+|---|---|---|
+| `pintu-track-app/drizzle/0000_init.sql` | Skema awal (auth + expenses + budgets) | ✅ dev & prod |
+| `pintu-track-app/drizzle/0001_wave_a.sql` | Gelombang A: `expenses`→`transactions` (+type, pocket_id), tabel `pockets` | ✅ dev & prod (17 Jul 2026) |
+
+Cara terapkan di produksi: resource PostgreSQL Coolify → Terminal → Connect → `psql -U $POSTGRES_USER -d $POSTGRES_DB` → paste isi file → verifikasi `\dt`.
+
+Catatan build: package-lock harus dire-generasi penuh bila `npm ci` gagal `Missing ... from lock file` (bug dedupe npm Windows), dan Dockerfile mem-pin `npm@11` di stage deps agar penanganan optional-deps per-platform konsisten dengan lockfile.
+
+## 7. Checklist pasca-deploy
 
 - [ ] `https://app.pintutrack.com/masuk` bisa daftar + login (cookie aman butuh HTTPS — pastikan `BETTER_AUTH_URL` persis sama dengan domain publik).
 - [ ] Catat pengeluaran dari web → muncul di dasbor.
