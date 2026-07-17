@@ -71,8 +71,11 @@ Uji: buka Profil di aplikasi → **Hubungkan Telegram** → klik tautan → kiri
 |---|---|---|
 | `pintu-track-app/drizzle/0000_init.sql` | Skema awal (auth + expenses + budgets) | ✅ dev & prod |
 | `pintu-track-app/drizzle/0001_wave_a.sql` | Gelombang A: `expenses`→`transactions` (+type, pocket_id), tabel `pockets` | ✅ dev & prod (17 Jul 2026) |
+| `pintu-track-app/drizzle/0002_wave_b.sql` | Gelombang B: tabel `reminders` + `job_runs` | ✅ dev & prod (17 Jul 2026) |
 
-Cara terapkan di produksi: resource PostgreSQL Coolify → Terminal → Connect → `psql -U $POSTGRES_USER -d $POSTGRES_DB` → paste isi file → verifikasi `\dt`.
+Cara terapkan di produksi: resource PostgreSQL Coolify → Terminal → Connect → `psql -U $POSTGRES_USER -d $POSTGRES_DB` → paste isi file → verifikasi `\dt`. Bagian RLS di file migrasi hanya untuk Supabase dev — jangan dipaste ke produksi. **Urutan rilis bila ada migrasi: SQL dulu, baru Deploy kode.**
+
+Penjadwal internal (Gelombang B): laporan mingguan Senin 07:00 WIB + pengingat tagihan harian 07:00 WIB, hidup otomatis di kontainer aplikasi via `instrumentation.ts` — tanpa cron OS. Cek kesehatan: tabel `job_runs` terisi, atau log kontainer memuat `[scheduler] aktif`. Pemicu manual: `POST /api/cron/run?job=weekly|reminders` + header `x-cron-secret: <TELEGRAM_WEBHOOK_SECRET>`.
 
 Catatan build: package-lock harus dire-generasi penuh bila `npm ci` gagal `Missing ... from lock file` (bug dedupe npm Windows), dan Dockerfile mem-pin `npm@11` di stage deps agar penanganan optional-deps per-platform konsisten dengan lockfile.
 
