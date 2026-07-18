@@ -86,6 +86,10 @@ export const pockets = pgTable(
     name: text("name").notNull(),
     emoji: text("emoji").notNull().default("🎯"),
     targetAmount: integer("target_amount"),
+    /** Terisi = kantong bersama, terlihat oleh semua anggota rumah. */
+    householdId: uuid("household_id").references(() => households.id, {
+      onDelete: "set null",
+    }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("pockets_user_name_idx").on(t.userId, sql`lower(${t.name})`)]
