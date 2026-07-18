@@ -4,6 +4,7 @@ import {
   index,
   integer,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -132,6 +133,35 @@ export const jobRuns = pgTable("job_runs", {
   job: text("job").primaryKey(),
   lastRunAt: timestamp("last_run_at", { withTimezone: true }).notNull(),
 });
+
+/** Rumah/keluarga — lapisan agregasi aditif; transaksi tetap milik akun. */
+export const households = pgTable("households", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  inviteCode: text("invite_code").notNull().unique(),
+  createdBy: text("created_by").references(() => user.id, {
+    onDelete: "set null",
+  }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const householdMembers = pgTable(
+  "household_members",
+  {
+    householdId: uuid("household_id")
+      .notNull()
+      .references(() => households.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.householdId, t.userId] }),
+    // Satu rumah per akun (v1)
+    uniqueIndex("household_members_user_idx").on(t.userId),
+  ]
+);
 
 /** Tebakan AI yang menunggu konfirmasi user via tombol Telegram. */
 export const aiSuggestions = pgTable(
