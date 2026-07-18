@@ -13,6 +13,9 @@ const SIGN: Record<TransactionType, number> = {
   expense: -1,
   saving_deposit: -1,
   saving_withdrawal: 1,
+  // Top-up dari luar: kekayaan bertambah langsung di kantong,
+  // Saldo Utama tidak tersentuh.
+  saving_topup: 0,
 };
 
 /** Saldo Utama sepanjang masa. Boleh negatif — jangan pernah blokir pencatatan. */
@@ -25,8 +28,13 @@ export function pocketBalances(rows: LedgerRow[]): Map<string, number> {
   const out = new Map<string, number>();
   for (const r of rows) {
     if (!r.pocketId) continue;
-    if (r.type !== "saving_deposit" && r.type !== "saving_withdrawal") continue;
-    const delta = r.type === "saving_deposit" ? r.amount : -r.amount;
+    if (
+      r.type !== "saving_deposit" &&
+      r.type !== "saving_withdrawal" &&
+      r.type !== "saving_topup"
+    )
+      continue;
+    const delta = r.type === "saving_withdrawal" ? -r.amount : r.amount;
     out.set(r.pocketId, (out.get(r.pocketId) ?? 0) + delta);
   }
   return out;
@@ -43,7 +51,7 @@ export function monthlySummary(rows: LedgerRow[], now = new Date()) {
     if (t < start || t > now) continue;
     if (r.type === "income") income += r.amount;
     if (r.type === "expense") expense += r.amount;
-    if (r.type === "saving_deposit") saved += r.amount;
+    if (r.type === "saving_deposit" || r.type === "saving_topup") saved += r.amount;
     if (r.type === "saving_withdrawal") saved -= r.amount;
   }
   return { income, expense, saved };

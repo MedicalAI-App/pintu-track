@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parseQuickInput } from "@/lib/parse";
+import { parseQuickInput, parseTransfer } from "@/lib/parse";
 
 describe("income", () => {
   test("gajian 5jt → income kategori Gaji", () => {
@@ -42,5 +42,42 @@ describe("kantong", () => {
     const p = parseQuickInput("tabung 25.000 dana darurat");
     expect(p.type).toBe("saving_deposit");
     expect(p.pocketQuery).toBe("dana darurat");
+  });
+  test("topup liburan 100rb → saving_topup", () => {
+    const p = parseQuickInput("topup liburan 100rb");
+    expect(p.type).toBe("saving_topup");
+    expect(p.amount).toBe(100_000);
+    expect(p.pocketQuery).toBe("liburan");
+  });
+  test("isi 50rb ke dana darurat → saving_topup", () => {
+    const p = parseQuickInput("isi 50rb ke dana darurat");
+    expect(p.type).toBe("saving_topup");
+    expect(p.pocketQuery).toBe("dana darurat");
+  });
+});
+
+describe("parseTransfer", () => {
+  test("transfer 50rb dari liburan ke darurat", () => {
+    expect(parseTransfer("transfer 50rb dari liburan ke darurat")).toEqual({
+      amount: 50_000,
+      fromQuery: "liburan",
+      toQuery: "darurat",
+    });
+  });
+  test("pindah 1,5jt dari dana darurat ke liburan (multi-kata)", () => {
+    expect(parseTransfer("pindah 1,5jt dari dana darurat ke liburan")).toEqual({
+      amount: 1_500_000,
+      fromQuery: "dana darurat",
+      toQuery: "liburan",
+    });
+  });
+  test("tanpa 'dari/ke' → null", () => {
+    expect(parseTransfer("transfer 50rb liburan")).toBeNull();
+  });
+  test("tanpa nominal → null", () => {
+    expect(parseTransfer("transfer dari liburan ke darurat")).toBeNull();
+  });
+  test("bukan perintah transfer → null", () => {
+    expect(parseTransfer("makan siang 30rb")).toBeNull();
   });
 });
