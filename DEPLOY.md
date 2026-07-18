@@ -72,6 +72,7 @@ Uji: buka Profil di aplikasi → **Hubungkan Telegram** → klik tautan → kiri
 | `pintu-track-app/drizzle/0000_init.sql` | Skema awal (auth + expenses + budgets) | ✅ dev & prod |
 | `pintu-track-app/drizzle/0001_wave_a.sql` | Gelombang A: `expenses`→`transactions` (+type, pocket_id), tabel `pockets` | ✅ dev & prod (17 Jul 2026) |
 | `pintu-track-app/drizzle/0002_wave_b.sql` | Gelombang B: tabel `reminders` + `job_runs` | ✅ dev & prod (17 Jul 2026) |
+| `pintu-track-app/drizzle/0003_wave_c.sql` | Gelombang C: tabel `ai_suggestions` (tebakan AI menunggu konfirmasi) | ✅ dev & prod (18 Jul 2026) |
 
 Cara terapkan di produksi: resource PostgreSQL Coolify → Terminal → Connect → `psql -U $POSTGRES_USER -d $POSTGRES_DB` → paste isi file → verifikasi `\dt`. Bagian RLS di file migrasi hanya untuk Supabase dev — jangan dipaste ke produksi. **Urutan rilis bila ada migrasi: SQL dulu, baru Deploy kode.**
 
