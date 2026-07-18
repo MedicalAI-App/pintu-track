@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import FamilyProfileSection from "@/components/FamilyProfileSection";
 import { signOut } from "@/lib/auth-client";
 import { useAppData } from "@/lib/store";
 
@@ -126,6 +127,9 @@ export default function Profil() {
           {saved ? "✓ Tersimpan" : "Simpan Profil"}
         </button>
       </form>
+
+      {/* Keluarga */}
+      <FamilyProfileSection />
 
       {/* Telegram */}
       <section className="glass flex flex-col gap-4 rounded-2xl p-5">

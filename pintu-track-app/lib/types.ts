@@ -63,6 +63,21 @@ export type Pocket = {
   balance: number;
 };
 
+/** Rumah/keluarga — agregasi lintas akun. */
+export type Household = {
+  id: string;
+  name: string;
+  inviteCode: string;
+  members: {
+    userId: string;
+    name: string;
+    expenseMonth: number;
+    incomeMonth: number;
+    savedMonth: number;
+  }[];
+  total: { expense: number; income: number; saved: number };
+};
+
 /** Pengingat tagihan berulang (dikirim bot tiap tanggal N). */
 export type Reminder = {
   id: string;
@@ -79,6 +94,7 @@ export type Budget = {
 };
 
 export type Profile = {
+  userId?: string;
   name: string;
   email: string;
   telegramLinked: boolean;

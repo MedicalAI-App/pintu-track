@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import BudgetBar from "@/components/BudgetBar";
+import FamilyDashboardSection from "@/components/FamilyDashboardSection";
 import { formatRupiah, formatShortRupiah, isSameMonth } from "@/lib/format";
 import { useAppData } from "@/lib/store";
 import { CATEGORY_EMOJI, type Category } from "@/lib/types";
@@ -132,6 +133,9 @@ export default function Dasbor() {
           </p>
         </div>
       </section>
+
+      {/* Keluarga */}
+      <FamilyDashboardSection />
 
       {/* Grafik bulanan */}
       <section className="glass rounded-2xl p-5">
