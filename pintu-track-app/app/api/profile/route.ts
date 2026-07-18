@@ -21,6 +21,7 @@ export async function GET() {
 
   return NextResponse.json({
     profile: {
+      userId: user.id,
       name: row?.name ?? "",
       email: row?.email ?? "",
       telegramLinked: Boolean(row?.telegramId),

@@ -12,6 +12,7 @@ import {
 import { useSession } from "./auth-client";
 import type {
   Budget,
+  Household,
   Pocket,
   Profile,
   Reminder,
@@ -82,6 +83,11 @@ type Store = {
   }) => Promise<void>;
   updateReminder: (id: string, patch: Partial<Reminder>) => Promise<void>;
   deleteReminder: (id: string) => Promise<void>;
+  household: Household | null;
+  createHousehold: (name: string) => Promise<void>;
+  joinHousehold: (code: string) => Promise<void>;
+  leaveHousehold: () => Promise<void>;
+  fetchMemberTransactions: (userId: string) => Promise<Transaction[]>;
   budget: Budget;
   setBudget: (b: Budget) => Promise<void>;
   profile: Profile;
@@ -105,6 +111,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const [budget, setBudgetState] = useState<Budget>(DEFAULT_BUDGET);
   const [profile, setProfileState] = useState<Profile>(DEFAULT_PROFILE);
   const [remindersState, setReminders] = useState<Reminder[]>([]);
+  const [household, setHousehold] = useState<Household | null>(null);
 
   const authed = isPending ? null : Boolean(session);
 
@@ -113,18 +120,20 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const [t, s, b, p, r] = await Promise.all([
+    const [t, s, b, p, r, h] = await Promise.all([
       api<{ transactions: Transaction[] }>("/api/transactions?months=6"),
       api<Summary>("/api/summary"),
       api<{ budget: Budget }>("/api/budget"),
       api<{ profile: Profile }>("/api/profile"),
       api<{ reminders: Reminder[] }>("/api/reminders"),
+      api<{ household: Household | null }>("/api/household"),
     ]);
     setTransactions(t.transactions);
     setSummary(s);
     setBudgetState(b.budget);
     setProfileState(p.profile);
     setReminders(r.reminders);
+    setHousehold(h.household);
   }, []);
 
   // Redirect ke /masuk bila belum login (kecuali sedang di /masuk)
@@ -226,6 +235,37 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     setReminders((prev) => prev.filter((x) => x.id !== id));
   }, []);
 
+  const createHousehold: Store["createHousehold"] = useCallback(async (name) => {
+    const { household } = await api<{ household: Household }>("/api/household", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+    setHousehold(household);
+  }, []);
+
+  const joinHousehold: Store["joinHousehold"] = useCallback(async (code) => {
+    const { household } = await api<{ household: Household }>(
+      "/api/household/join",
+      { method: "POST", body: JSON.stringify({ code }) }
+    );
+    setHousehold(household);
+  }, []);
+
+  const leaveHousehold: Store["leaveHousehold"] = useCallback(async () => {
+    await api("/api/household/leave", { method: "POST" });
+    setHousehold(null);
+  }, []);
+
+  const fetchMemberTransactions: Store["fetchMemberTransactions"] = useCallback(
+    async (userId) => {
+      const { transactions } = await api<{ transactions: Transaction[] }>(
+        `/api/household/members/${userId}/transactions?months=1`
+      );
+      return transactions;
+    },
+    []
+  );
+
   const setBudget: Store["setBudget"] = useCallback(async (b) => {
     const { budget } = await api<{ budget: Budget }>("/api/budget", {
       method: "PUT",
@@ -281,6 +321,11 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         createReminder,
         updateReminder,
         deleteReminder,
+        household,
+        createHousehold,
+        joinHousehold,
+        leaveHousehold,
+        fetchMemberTransactions,
         budget,
         setBudget,
         profile,

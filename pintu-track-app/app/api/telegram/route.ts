@@ -9,6 +9,8 @@ import {
   user as userTable,
 } from "@/lib/db/schema";
 import { formatRupiah } from "@/lib/format";
+import { buildFamilyReport } from "@/lib/household";
+import { householdViewFor } from "@/lib/household-server";
 import { parseQuickInput, parseReminder, type ParsedInput } from "@/lib/parse";
 import { appendTransactionToSheet } from "@/lib/sheets";
 import { pocketBalance, resolvePocket, summaryFor, totalsFor } from "@/lib/stats";
@@ -413,6 +415,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: true });
     }
     await offerAiSuggestion(owner, chatId, parsed, "🧾 Dari struk");
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── Perintah: ringkasan keluarga ─────────────────────────────
+  if (/^keluarga$/i.test(text)) {
+    const view = await householdViewFor(owner.id);
+    await sendTelegramMessage(
+      chatId,
+      view
+        ? buildFamilyReport(view.name, {
+            perMember: view.members.map((m) => ({
+              name: m.name,
+              expense: m.expenseMonth,
+              income: m.incomeMonth,
+              saved: m.savedMonth,
+            })),
+            total: view.total,
+          })
+        : "Kamu belum tergabung di rumah mana pun. Buat atau gabung rumah lewat halaman Profil di aplikasi web."
+    );
     return NextResponse.json({ ok: true });
   }
 
