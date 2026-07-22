@@ -37,3 +37,19 @@ describe("ledger", () => {
     ).toBe(-7_000);
   });
 });
+
+describe("saving_topup (top-up dari luar)", () => {
+  const topupRows: LedgerRow[] = [
+    { type: "income", amount: 1_000_000, date: d("2026-07-01") },
+    { type: "saving_topup", amount: 200_000, pocketId: "p1", date: d("2026-07-05") },
+  ];
+  test("Saldo Utama TIDAK berubah oleh topup", () => {
+    expect(saldoUtama(topupRows)).toBe(1_000_000);
+  });
+  test("isi kantong bertambah oleh topup", () => {
+    expect(pocketBalances(topupRows).get("p1")).toBe(200_000);
+  });
+  test("ditabung bulan ini menghitung topup", () => {
+    expect(monthlySummary(topupRows, d("2026-07-20")).saved).toBe(200_000);
+  });
+});

@@ -25,6 +25,7 @@ export const TRANSACTION_TYPES = [
   "income",
   "saving_deposit",
   "saving_withdrawal",
+  "saving_topup",
 ] as const;
 
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
@@ -38,6 +39,7 @@ export const TYPE_LABEL: Record<TransactionType, string> = {
   income: "Pemasukan",
   saving_deposit: "Nabung",
   saving_withdrawal: "Tarik",
+  saving_topup: "Top-up",
 };
 
 /** Satu baris ledger — cermin tabel TRANSACTIONS. */
@@ -61,6 +63,9 @@ export type Pocket = {
   emoji: string;
   targetAmount: number | null;
   balance: number;
+  /** true = kantong bersama keluarga */
+  shared?: boolean;
+  ownerName?: string;
 };
 
 /** Rumah/keluarga — agregasi lintas akun. */

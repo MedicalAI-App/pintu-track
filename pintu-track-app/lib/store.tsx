@@ -73,8 +73,14 @@ type Store = {
     name: string;
     emoji: string;
     targetAmount: number | null;
+    shared?: boolean;
   }) => Promise<void>;
   deletePocket: (id: string) => Promise<void>;
+  transferPocket: (
+    fromPocketId: string,
+    toPocketId: string,
+    amount: number
+  ) => Promise<void>;
   reminders: Reminder[];
   createReminder: (r: {
     description: string;
@@ -201,6 +207,22 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
     [refreshSummary]
   );
 
+  const transferPocket: Store["transferPocket"] = useCallback(
+    async (fromPocketId, toPocketId, amount) => {
+      await api("/api/pockets/transfer", {
+        method: "POST",
+        body: JSON.stringify({ fromPocketId, toPocketId, amount }),
+      });
+      // Transfer memunculkan 2 transaksi baru — muat ulang keduanya
+      const t = await api<{ transactions: Transaction[] }>(
+        "/api/transactions?months=6"
+      );
+      setTransactions(t.transactions);
+      await refreshSummary();
+    },
+    [refreshSummary]
+  );
+
   const deletePocket: Store["deletePocket"] = useCallback(
     async (id) => {
       await api(`/api/pockets/${id}`, { method: "DELETE" });
@@ -317,6 +339,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         deleteTransaction,
         createPocket,
         deletePocket,
+        transferPocket,
         reminders: remindersState,
         createReminder,
         updateReminder,

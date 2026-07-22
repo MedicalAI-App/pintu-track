@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { pockets, transactions } from "@/lib/db/schema";
-import { pocketBalance } from "@/lib/stats";
+import { visiblePocketBalance } from "@/lib/stats";
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -60,7 +60,19 @@ export async function DELETE(_req: Request, { params }: Params) {
     return NextResponse.json({ error: "Kantong tidak ditemukan" }, { status: 404 });
   }
 
-  const balance = await pocketBalance(user.id, id);
+  const balance = (await visiblePocketBalance(user.id, id)) ?? 0;
+
+  // Kantong bersama: hapus hanya saat kosong — anggota tarik dulu bagiannya,
+  // agar kontribusi orang lain tidak berpindah ke Saldo Utama penghapus.
+  if (pocket.householdId && balance > 0) {
+    return NextResponse.json(
+      {
+        error: `Kantong bersama masih berisi Rp ${balance.toLocaleString("id-ID")} — kosongkan dulu sebelum dihapus.`,
+      },
+      { status: 409 }
+    );
+  }
+
   if (balance > 0) {
     await db.insert(transactions).values({
       userId: user.id,

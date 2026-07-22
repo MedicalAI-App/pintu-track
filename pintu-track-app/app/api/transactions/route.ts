@@ -4,7 +4,7 @@ import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { transactions, user as userTable } from "@/lib/db/schema";
 import { appendTransactionToSheet } from "@/lib/sheets";
-import { pocketBalance, resolvePocket, totalsFor } from "@/lib/stats";
+import { resolvePocket, totalsFor, visiblePocketBalance } from "@/lib/stats";
 import { maybeSendBudgetWarning } from "@/lib/telegram";
 import {
   CATEGORIES,
@@ -70,7 +70,7 @@ export async function POST(req: Request) {
       category = "Lainnya";
     }
   } else {
-    // saving_deposit / saving_withdrawal
+    // saving_deposit / saving_withdrawal / saving_topup
     category = "Tabungan";
     if (body?.pocketId) {
       pocketId = String(body.pocketId);
@@ -95,14 +95,16 @@ export async function POST(req: Request) {
       }
       pocketId = res.pocket.id;
     }
-    if (type === "saving_withdrawal") {
-      const balance = await pocketBalance(user.id, pocketId);
-      if (amount > balance) {
-        return NextResponse.json(
-          { error: `Isi kantong hanya Rp ${balance.toLocaleString("id-ID")}` },
-          { status: 400 }
-        );
-      }
+    // Otorisasi + saldo shared-aware dalam satu panggilan
+    const balance = await visiblePocketBalance(user.id, pocketId);
+    if (balance === null) {
+      return NextResponse.json({ error: "Kantong tidak ditemukan" }, { status: 404 });
+    }
+    if (type === "saving_withdrawal" && amount > balance) {
+      return NextResponse.json(
+        { error: `Isi kantong hanya Rp ${balance.toLocaleString("id-ID")}` },
+        { status: 400 }
+      );
     }
   }
 

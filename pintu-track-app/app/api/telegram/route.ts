@@ -11,9 +11,20 @@ import {
 import { formatRupiah } from "@/lib/format";
 import { buildFamilyReport } from "@/lib/household";
 import { householdViewFor } from "@/lib/household-server";
-import { parseQuickInput, parseReminder, type ParsedInput } from "@/lib/parse";
+import {
+  parseQuickInput,
+  parseReminder,
+  parseTransfer,
+  type ParsedInput,
+  type ParsedTransfer,
+} from "@/lib/parse";
 import { appendTransactionToSheet } from "@/lib/sheets";
-import { pocketBalance, resolvePocket, summaryFor, totalsFor } from "@/lib/stats";
+import {
+  resolvePocket,
+  summaryFor,
+  totalsFor,
+  visiblePocketBalance,
+} from "@/lib/stats";
 import {
   answerCallbackQuery,
   editMessageText,
@@ -203,11 +214,78 @@ async function handlePayCallback(cb: {
   }
 }
 
-function pocketLine(p: { emoji: string; name: string; balance: number; targetAmount: number | null }) {
+function pocketLine(p: {
+  emoji: string;
+  name: string;
+  balance: number;
+  targetAmount: number | null;
+  shared?: boolean;
+}) {
   const progress = p.targetAmount
     ? ` / ${formatRupiah(p.targetAmount)} (${Math.round((p.balance / p.targetAmount) * 100)}%)`
     : "";
-  return `${p.emoji} ${p.name}: ${formatRupiah(p.balance)}${progress}`;
+  const badge = p.shared ? " 👨‍👩‍👧" : "";
+  return `${p.emoji} ${p.name}${badge}: ${formatRupiah(p.balance)}${progress}`;
+}
+
+/** Transfer antar kantong via chat: "transfer 50rb dari liburan ke darurat". */
+async function handleTransfer(
+  owner: Owner,
+  chatId: number,
+  t: ParsedTransfer
+) {
+  const fromRes = await resolvePocket(owner.id, t.fromQuery);
+  const toRes = await resolvePocket(owner.id, t.toQuery);
+  if ("error" in fromRes || "error" in toRes) {
+    const list = ("error" in fromRes ? fromRes : (toRes as { candidates: { emoji: string; name: string }[] })).candidates;
+    await sendTelegramMessage(
+      chatId,
+      `Kantongnya belum ketemu. Kantong yang ada:\n${list.map((p) => `${p.emoji} ${p.name}`).join("\n") || "(belum ada)"}`
+    );
+    return;
+  }
+  const from = fromRes.pocket;
+  const to = toRes.pocket;
+  if (from.id === to.id) {
+    await sendTelegramMessage(chatId, "Kantong asal dan tujuan sama 😅");
+    return;
+  }
+  const balance = (await visiblePocketBalance(owner.id, from.id)) ?? 0;
+  if (t.amount > balance) {
+    await sendTelegramMessage(
+      chatId,
+      `⚠️ Isi ${from.emoji} ${from.name} hanya ${formatRupiah(balance)} — tidak bisa transfer ${formatRupiah(t.amount)}.`
+    );
+    return;
+  }
+
+  const description = `Transfer: ${from.name} → ${to.name}`;
+  await db.transaction(async (tx) => {
+    await tx.insert(transactions).values({
+      userId: owner.id,
+      type: "saving_withdrawal",
+      amount: t.amount,
+      description,
+      category: "Tabungan",
+      pocketId: from.id,
+    });
+    await tx.insert(transactions).values({
+      userId: owner.id,
+      type: "saving_deposit",
+      amount: t.amount,
+      description,
+      category: "Tabungan",
+      pocketId: to.id,
+    });
+  });
+
+  const summary = await summaryFor(owner.id);
+  const fromNow = summary.pockets.find((p) => p.id === from.id);
+  const toNow = summary.pockets.find((p) => p.id === to.id);
+  const lines = [`↔️ ${description}: ${formatRupiah(t.amount)}`];
+  if (fromNow) lines.push(pocketLine(fromNow));
+  if (toNow) lines.push(pocketLine(toNow));
+  await sendTelegramMessage(chatId, lines.join("\n"));
 }
 
 async function insertAndSync(owner: Owner, values: typeof transactions.$inferInsert) {
@@ -263,7 +341,7 @@ async function handleSaving(owner: Owner, chatId: number, parsed: ParsedInput) {
   const pocket = res.pocket;
 
   if (parsed.type === "saving_withdrawal") {
-    const balance = await pocketBalance(owner.id, pocket.id);
+    const balance = (await visiblePocketBalance(owner.id, pocket.id)) ?? 0;
     if (parsed.amount! > balance) {
       await sendTelegramMessage(
         chatId,
@@ -284,11 +362,17 @@ async function handleSaving(owner: Owner, chatId: number, parsed: ParsedInput) {
 
   const summary = await summaryFor(owner.id);
   const updated = summary.pockets.find((p) => p.id === pocket.id);
-  const icon = parsed.type === "saving_deposit" ? "🔵 Ditabung ke" : "🟠 Diambil dari";
+  const icon =
+    parsed.type === "saving_deposit"
+      ? "🔵 Ditabung ke"
+      : parsed.type === "saving_topup"
+        ? "💵 Top-up ke"
+        : "🟠 Diambil dari";
   const lines = [
     `${icon} ${pocket.emoji} ${pocket.name}: ${formatRupiah(parsed.amount!)}.`,
   ];
   if (updated) lines.push(pocketLine(updated));
+  // Top-up dari luar tidak mengubah Saldo Utama — tetap ditampilkan sebagai info
   lines.push(`Saldo Utama: ${formatRupiah(summary.saldoUtama)}`);
   await sendTelegramMessage(chatId, lines.join("\n"));
 }
@@ -503,6 +587,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
+  // ── Transfer antar kantong: "transfer 50rb dari X ke Y" ──────
+  const transfer = parseTransfer(text);
+  if (transfer) {
+    await handleTransfer(owner, chatId, transfer);
+    return NextResponse.json({ ok: true });
+  }
+
   // ── Transaksi dari teks bebas ─────────────────────────────────
   const parsed = parseQuickInput(text);
   if (!parsed.amount) {
@@ -522,7 +613,11 @@ export async function POST(req: Request) {
   }
 
   if (parsed.type === "income") await handleIncome(owner, chatId, parsed);
-  else if (parsed.type === "saving_deposit" || parsed.type === "saving_withdrawal")
+  else if (
+    parsed.type === "saving_deposit" ||
+    parsed.type === "saving_withdrawal" ||
+    parsed.type === "saving_topup"
+  )
     await handleSaving(owner, chatId, parsed);
   else await handleExpense(owner, chatId, parsed);
 

@@ -10,6 +10,7 @@ const TYPE_BADGE: Record<Transaction["type"], string> = {
   income: "💰 ",
   saving_deposit: "🔵 ",
   saving_withdrawal: "🟠 ",
+  saving_topup: "💵 ",
 };
 
 function MemberCard({

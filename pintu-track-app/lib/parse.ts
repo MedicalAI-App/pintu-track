@@ -112,6 +112,35 @@ export function parseReminder(raw: string): ParsedReminder | null {
   return { description, amount, dayOfMonth };
 }
 
+export type ParsedTransfer = {
+  amount: number;
+  fromQuery: string;
+  toQuery: string;
+};
+
+/**
+ * Parse transfer antar kantong:
+ * "transfer 50rb dari liburan ke darurat" → {amount, fromQuery, toQuery}.
+ * Wajib ada nominal, "dari <asal>", dan "ke <tujuan>"; selain itu null.
+ */
+export function parseTransfer(raw: string): ParsedTransfer | null {
+  const text = raw.trim().replace(/\s+/g, " ");
+  const m = text.match(/^(?:transfer|pindah)\b\s*(.*)$/i);
+  if (!m) return null;
+
+  const { amount, rest } = extractAmount(m[1]);
+  if (!amount || amount <= 0) return null;
+
+  const parts = rest.match(/\bdari\s+(.+?)\s+ke\s+(.+)$/i);
+  if (!parts) return null;
+
+  const fromQuery = parts[1].trim().toLowerCase();
+  const toQuery = parts[2].trim().toLowerCase();
+  if (!fromQuery || !toQuery) return null;
+
+  return { amount, fromQuery, toQuery };
+}
+
 export type ParsedInput = {
   type: TransactionType;
   amount: number | null;
@@ -135,18 +164,22 @@ export function parseQuickInput(raw: string): ParsedInput {
 
   const lower = description.toLowerCase();
 
-  // Transaksi kantong: "nabung 100rb liburan" / "ambil 50rb dari liburan".
+  // Transaksi kantong: "nabung 100rb liburan" / "ambil 50rb dari liburan" /
+  // "topup liburan 100rb" (top-up dari luar — Saldo Utama tak tersentuh).
   // Fallback ambil→expense diputuskan server-side bila kantong tak ditemukan.
   const savingMatch = text
     .toLowerCase()
-    .match(/^(nabung|tabung|menabung|ambil|tarik)\b/);
+    .match(/^(nabung|tabung|menabung|ambil|tarik|topup|top up|isi)\b/);
   if (savingMatch) {
-    const type: TransactionType = ["ambil", "tarik"].includes(savingMatch[1])
+    const kw = savingMatch[1];
+    const type: TransactionType = ["ambil", "tarik"].includes(kw)
       ? "saving_withdrawal"
-      : "saving_deposit";
+      : ["topup", "top up", "isi"].includes(kw)
+        ? "saving_topup"
+        : "saving_deposit";
     const pocketQuery =
       lower
-        .replace(/^(nabung|tabung|menabung|ambil|tarik)\b/, "")
+        .replace(/^(nabung|tabung|menabung|ambil|tarik|topup|top up|isi)\b/, "")
         .replace(/\b(dari|ke|buat|untuk)\b/g, " ")
         .replace(/\s+/g, " ")
         .trim() || null;

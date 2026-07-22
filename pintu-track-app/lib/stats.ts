@@ -1,6 +1,12 @@
-import { eq } from "drizzle-orm";
+import { eq, getTableColumns, inArray, or } from "drizzle-orm";
 import { db } from "./db";
-import { budgets, pockets, transactions } from "./db/schema";
+import {
+  budgets,
+  householdMembers,
+  pockets,
+  transactions,
+  user as userTable,
+} from "./db/schema";
 import {
   monthlySummary,
   pocketBalances,
@@ -51,15 +57,54 @@ export async function totalsFor(userId: string) {
   return { totalToday, totalMonth, budget: budget ?? null, saldo: saldoUtama(rows) };
 }
 
+async function myHouseholdId(userId: string): Promise<string | null> {
+  const [m] = await db
+    .select({ householdId: householdMembers.householdId })
+    .from(householdMembers)
+    .where(eq(householdMembers.userId, userId))
+    .limit(1);
+  return m?.householdId ?? null;
+}
+
+export type VisiblePocket = typeof pockets.$inferSelect & { ownerName: string };
+
+/** Kantong yang terlihat user: milik sendiri ∪ kantong bersama rumahnya. */
+export async function visiblePockets(userId: string): Promise<VisiblePocket[]> {
+  const hid = await myHouseholdId(userId);
+  return db
+    .select({ ...getTableColumns(pockets), ownerName: userTable.name })
+    .from(pockets)
+    .innerJoin(userTable, eq(userTable.id, pockets.userId))
+    .where(
+      hid
+        ? or(eq(pockets.userId, userId), eq(pockets.householdId, hid))
+        : eq(pockets.userId, userId)
+    )
+    .orderBy(pockets.createdAt);
+}
+
+/** Saldo kantong dihitung dari SEMUA kontributor (shared-aware) untuk pocketIds terpilih. */
+async function balancesForPockets(pocketIds: string[]): Promise<Map<string, number>> {
+  if (!pocketIds.length) return new Map();
+  const rows = await db
+    .select({
+      type: transactions.type,
+      amount: transactions.amount,
+      pocketId: transactions.pocketId,
+      date: transactions.date,
+    })
+    .from(transactions)
+    .where(inArray(transactions.pocketId, pocketIds));
+  return pocketBalances(
+    rows.map((r) => ({ ...r, type: r.type as TransactionType }))
+  );
+}
+
 /** Ringkasan lengkap untuk /api/summary & halaman kantong. */
 export async function summaryFor(userId: string) {
   const rows = await allRows(userId);
-  const list = await db
-    .select()
-    .from(pockets)
-    .where(eq(pockets.userId, userId))
-    .orderBy(pockets.createdAt);
-  const balances = pocketBalances(rows);
+  const list = await visiblePockets(userId);
+  const balances = await balancesForPockets(list.map((p) => p.id));
   const m = monthlySummary(rows);
   const out: Pocket[] = list.map((p) => ({
     id: p.id,
@@ -67,6 +112,8 @@ export async function summaryFor(userId: string) {
     emoji: p.emoji,
     targetAmount: p.targetAmount,
     balance: balances.get(p.id) ?? 0,
+    shared: Boolean(p.householdId),
+    ownerName: p.ownerName,
   }));
   return {
     saldoUtama: saldoUtama(rows),
@@ -77,27 +124,30 @@ export async function summaryFor(userId: string) {
   };
 }
 
-export async function pocketBalance(userId: string, pocketId: string) {
-  const rows = await allRows(userId);
-  return pocketBalances(rows).get(pocketId) ?? 0;
+/**
+ * Saldo satu kantong (shared-aware) — null bila kantong tidak terlihat user
+ * (sekaligus berfungsi sebagai pemeriksaan otorisasi).
+ */
+export async function visiblePocketBalance(
+  userId: string,
+  pocketId: string
+): Promise<number | null> {
+  const list = await visiblePockets(userId);
+  if (!list.some((p) => p.id === pocketId)) return null;
+  const balances = await balancesForPockets([pocketId]);
+  return balances.get(pocketId) ?? 0;
 }
 
 export type PocketResolution =
-  | { pocket: typeof pockets.$inferSelect }
-  | {
-      error: "not_found" | "ambiguous";
-      candidates: (typeof pockets.$inferSelect)[];
-    };
+  | { pocket: VisiblePocket }
+  | { error: "not_found" | "ambiguous"; candidates: VisiblePocket[] };
 
-/** Cocokkan nama kantong dari teks bebas user. */
+/** Cocokkan nama kantong dari teks bebas user (termasuk kantong bersama). */
 export async function resolvePocket(
   userId: string,
   q: string
 ): Promise<PocketResolution> {
-  const list = await db
-    .select()
-    .from(pockets)
-    .where(eq(pockets.userId, userId));
+  const list = await visiblePockets(userId);
   const ql = q.trim().toLowerCase();
   if (ql) {
     const exact = list.filter((p) => p.name.toLowerCase() === ql);
