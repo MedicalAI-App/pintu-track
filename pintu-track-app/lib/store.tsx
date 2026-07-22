@@ -76,6 +76,15 @@ type Store = {
     shared?: boolean;
   }) => Promise<void>;
   deletePocket: (id: string) => Promise<void>;
+  updatePocket: (
+    id: string,
+    patch: {
+      name?: string;
+      emoji?: string;
+      targetAmount?: number | null;
+      shared?: boolean;
+    }
+  ) => Promise<void>;
   transferPocket: (
     fromPocketId: string,
     toPocketId: string,
@@ -202,6 +211,17 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
   const createPocket: Store["createPocket"] = useCallback(
     async (p) => {
       await api("/api/pockets", { method: "POST", body: JSON.stringify(p) });
+      await refreshSummary();
+    },
+    [refreshSummary]
+  );
+
+  const updatePocket: Store["updatePocket"] = useCallback(
+    async (id, patch) => {
+      await api(`/api/pockets/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
       await refreshSummary();
     },
     [refreshSummary]
@@ -339,6 +359,7 @@ export function AppDataProvider({ children }: { children: ReactNode }) {
         deleteTransaction,
         createPocket,
         deletePocket,
+        updatePocket,
         transferPocket,
         reminders: remindersState,
         createReminder,

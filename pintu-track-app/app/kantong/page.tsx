@@ -8,14 +8,22 @@ import type { Pocket } from "@/lib/types";
 const EMOJI_CHOICES = ["🎯", "🛟", "🏖️", "🏠", "🚗", "📱", "🎓", "💍"];
 
 function PocketCard({ pocket, others }: { pocket: Pocket; others: Pocket[] }) {
-  const { addTransaction, deletePocket, transferPocket } = useAppData();
-  const [mode, setMode] = useState<"idle" | "deposit" | "withdraw" | "topup" | "transfer">(
-    "idle"
-  );
+  const { addTransaction, deletePocket, transferPocket, updatePocket, household } =
+    useAppData();
+  const [mode, setMode] = useState<
+    "idle" | "deposit" | "withdraw" | "topup" | "transfer" | "edit"
+  >("idle");
   const [amount, setAmount] = useState("");
   const [toId, setToId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  // Edit
+  const [eName, setEName] = useState(pocket.name);
+  const [eEmoji, setEEmoji] = useState(pocket.emoji);
+  const [eTarget, setETarget] = useState(
+    pocket.targetAmount ? String(pocket.targetAmount) : ""
+  );
+  const [eShared, setEShared] = useState(Boolean(pocket.shared));
 
   const pct = pocket.targetAmount
     ? Math.min((pocket.balance / pocket.targetAmount) * 100, 100)
@@ -26,6 +34,35 @@ function PocketCard({ pocket, others }: { pocket: Pocket; others: Pocket[] }) {
     setAmount("");
     setToId("");
     setError("");
+  }
+
+  function startEdit() {
+    setEName(pocket.name);
+    setEEmoji(pocket.emoji);
+    setETarget(pocket.targetAmount ? String(pocket.targetAmount) : "");
+    setEShared(Boolean(pocket.shared));
+    setError("");
+    setMode("edit");
+  }
+
+  async function saveEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!eName.trim()) return;
+    setBusy(true);
+    setError("");
+    try {
+      await updatePocket(pocket.id, {
+        name: eName.trim(),
+        emoji: eEmoji,
+        targetAmount: eTarget ? parseInt(eTarget.replace(/\D/g, ""), 10) || null : null,
+        shared: eShared,
+      });
+      reset();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Gagal menyimpan.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -103,6 +140,15 @@ function PocketCard({ pocket, others }: { pocket: Pocket; others: Pocket[] }) {
           )}
         </div>
         <button
+          onClick={startEdit}
+          aria-label={`Edit kantong ${pocket.name}`}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-white/10 hover:text-foreground"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M17 3l4 4L8 20l-5 1 1-5L17 3z" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button
           onClick={handleDelete}
           aria-label={`Hapus kantong ${pocket.name}`}
           className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted transition-colors hover:bg-danger/20 hover:text-danger"
@@ -128,7 +174,70 @@ function PocketCard({ pocket, others }: { pocket: Pocket; others: Pocket[] }) {
         </div>
       )}
 
-      {mode === "idle" ? (
+      {mode === "edit" ? (
+        <form onSubmit={saveEdit} className="mt-4 flex flex-col gap-3">
+          <input
+            className="input"
+            value={eName}
+            onChange={(e) => setEName(e.target.value)}
+            placeholder="Nama kantong"
+            aria-label="Nama kantong"
+          />
+          <div className="flex flex-wrap gap-2">
+            {EMOJI_CHOICES.map((em) => (
+              <button
+                key={em}
+                type="button"
+                onClick={() => setEEmoji(em)}
+                className={`grid h-9 w-9 place-items-center rounded-lg text-lg transition-colors ${
+                  eEmoji === em ? "bg-accent/25 ring-1 ring-accent" : "bg-white/5 hover:bg-white/10"
+                }`}
+              >
+                {em}
+              </button>
+            ))}
+          </div>
+          <input
+            className="input"
+            value={eTarget}
+            onChange={(e) => setETarget(e.target.value)}
+            inputMode="numeric"
+            placeholder="Target (opsional)"
+            aria-label="Target"
+          />
+          {household && (
+            <label className="flex items-center gap-3 rounded-xl bg-white/5 p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={eShared}
+                onChange={(e) => setEShared(e.target.checked)}
+                className="h-4 w-4 accent-emerald-500"
+              />
+              <span>
+                👨‍👩‍👧 Jadikan kantong bersama{" "}
+                <span className="text-muted">({household.name})</span>
+              </span>
+            </label>
+          )}
+          {error && <p className="text-sm text-danger">{error}</p>}
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={busy}
+              className="rounded-xl bg-gradient-to-r from-accent to-accent-soft px-5 py-2 text-sm font-semibold text-background disabled:opacity-50"
+            >
+              Simpan
+            </button>
+            <button
+              type="button"
+              onClick={reset}
+              className="rounded-full px-4 py-2 text-sm text-muted hover:text-foreground"
+            >
+              Batal
+            </button>
+          </div>
+        </form>
+      ) : mode === "idle" ? (
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <button
             onClick={() => setMode("deposit")}
