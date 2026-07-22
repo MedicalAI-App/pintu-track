@@ -1,20 +1,36 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { pockets, transactions } from "@/lib/db/schema";
+import { householdMembers, pockets, transactions } from "@/lib/db/schema";
 import { visiblePocketBalance } from "@/lib/stats";
 
 type Params = { params: Promise<{ id: string }> };
 
-/** PATCH /api/pockets/:id — { name?, emoji?, targetAmount? } */
+/** PATCH /api/pockets/:id — { name?, emoji?, targetAmount?, shared? } — hanya pemilik. */
 export async function PATCH(req: Request, { params }: Params) {
   const user = await getSessionUser();
   if (!user) return NextResponse.json({ error: "Belum login" }, { status: 401 });
 
   const { id } = await params;
   const body = await req.json().catch(() => null);
-  const patch: Partial<{ name: string; emoji: string; targetAmount: number | null }> = {};
+
+  // Edit hanya oleh pemilik kantong
+  const [owned] = await db
+    .select()
+    .from(pockets)
+    .where(and(eq(pockets.id, id), eq(pockets.userId, user.id)))
+    .limit(1);
+  if (!owned) {
+    return NextResponse.json({ error: "Kantong tidak ditemukan" }, { status: 404 });
+  }
+
+  const patch: Partial<{
+    name: string;
+    emoji: string;
+    targetAmount: number | null;
+    householdId: string | null;
+  }> = {};
 
   if (body?.name !== undefined) {
     const name = String(body.name).trim();
@@ -30,15 +46,46 @@ export async function PATCH(req: Request, { params }: Params) {
     patch.targetAmount = t;
   }
 
+  // Ubah status kantong bersama (jadikan bersama / jadikan pribadi)
+  if (body?.shared !== undefined) {
+    const wantShared = Boolean(body.shared);
+    const isShared = Boolean(owned.householdId);
+    if (wantShared && !isShared) {
+      const [m] = await db
+        .select({ householdId: householdMembers.householdId })
+        .from(householdMembers)
+        .where(eq(householdMembers.userId, user.id))
+        .limit(1);
+      if (!m) {
+        return NextResponse.json(
+          { error: "Gabung rumah dulu untuk menjadikan kantong bersama" },
+          { status: 400 }
+        );
+      }
+      patch.householdId = m.householdId;
+    } else if (!wantShared && isShared) {
+      // Aman hanya bila belum ada kontribusi anggota lain
+      const [other] = await db
+        .select({ id: transactions.id })
+        .from(transactions)
+        .where(and(eq(transactions.pocketId, id), ne(transactions.userId, user.id)))
+        .limit(1);
+      if (other) {
+        return NextResponse.json(
+          { error: "Ada kontribusi anggota lain — tidak bisa dijadikan pribadi." },
+          { status: 409 }
+        );
+      }
+      patch.householdId = null;
+    }
+  }
+
   const [row] = await db
     .update(pockets)
     .set(patch)
     .where(and(eq(pockets.id, id), eq(pockets.userId, user.id)))
     .returning();
 
-  if (!row) {
-    return NextResponse.json({ error: "Kantong tidak ditemukan" }, { status: 404 });
-  }
   return NextResponse.json({ pocket: row });
 }
 
