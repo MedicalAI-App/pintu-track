@@ -1,7 +1,8 @@
+import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { pockets } from "@/lib/db/schema";
+import { householdMembers, pockets } from "@/lib/db/schema";
 import { summaryFor } from "@/lib/stats";
 
 export async function GET() {
@@ -33,10 +34,27 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Target tidak valid" }, { status: 400 });
   }
 
+  // Kantong bersama: butuh keanggotaan rumah
+  let householdId: string | null = null;
+  if (body?.shared) {
+    const [m] = await db
+      .select({ householdId: householdMembers.householdId })
+      .from(householdMembers)
+      .where(eq(householdMembers.userId, user.id))
+      .limit(1);
+    if (!m) {
+      return NextResponse.json(
+        { error: "Gabung rumah dulu untuk membuat kantong bersama" },
+        { status: 400 }
+      );
+    }
+    householdId = m.householdId;
+  }
+
   try {
     const [row] = await db
       .insert(pockets)
-      .values({ userId: user.id, name, emoji, targetAmount })
+      .values({ userId: user.id, name, emoji, targetAmount, householdId })
       .returning();
     return NextResponse.json(
       { pocket: { ...row, balance: 0 } },

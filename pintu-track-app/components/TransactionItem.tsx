@@ -16,6 +16,7 @@ const TYPE_ICON: Record<Transaction["type"], string> = {
   income: "💰",
   saving_deposit: "🔵",
   saving_withdrawal: "🟠",
+  saving_topup: "💵",
 };
 
 export default function TransactionItem({ transaction }: { transaction: Transaction }) {

@@ -7,16 +7,26 @@ import type { Pocket } from "@/lib/types";
 
 const EMOJI_CHOICES = ["🎯", "🛟", "🏖️", "🏠", "🚗", "📱", "🎓", "💍"];
 
-function PocketCard({ pocket }: { pocket: Pocket }) {
-  const { addTransaction, deletePocket } = useAppData();
-  const [mode, setMode] = useState<"idle" | "deposit" | "withdraw">("idle");
+function PocketCard({ pocket, others }: { pocket: Pocket; others: Pocket[] }) {
+  const { addTransaction, deletePocket, transferPocket } = useAppData();
+  const [mode, setMode] = useState<"idle" | "deposit" | "withdraw" | "topup" | "transfer">(
+    "idle"
+  );
   const [amount, setAmount] = useState("");
+  const [toId, setToId] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
   const pct = pocket.targetAmount
     ? Math.min((pocket.balance / pocket.targetAmount) * 100, 100)
     : null;
+
+  function reset() {
+    setMode("idle");
+    setAmount("");
+    setToId("");
+    setError("");
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -25,15 +35,31 @@ function PocketCard({ pocket }: { pocket: Pocket }) {
     setBusy(true);
     setError("");
     try {
-      await addTransaction({
-        type: mode === "deposit" ? "saving_deposit" : "saving_withdrawal",
-        amount: n,
-        description: `${mode === "deposit" ? "Nabung" : "Ambil"}: ${pocket.name}`,
-        category: "Tabungan",
-        pocketId: pocket.id,
-      });
-      setAmount("");
-      setMode("idle");
+      if (mode === "transfer") {
+        if (!toId) {
+          setError("Pilih kantong tujuan.");
+          setBusy(false);
+          return;
+        }
+        await transferPocket(pocket.id, toId, n);
+      } else {
+        const type =
+          mode === "deposit"
+            ? "saving_deposit"
+            : mode === "withdraw"
+              ? "saving_withdrawal"
+              : "saving_topup";
+        const verb =
+          mode === "deposit" ? "Nabung" : mode === "withdraw" ? "Ambil" : "Top-up";
+        await addTransaction({
+          type,
+          amount: n,
+          description: `${verb}: ${pocket.name}`,
+          category: "Tabungan",
+          pocketId: pocket.id,
+        });
+      }
+      reset();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal menyimpan.");
     } finally {
@@ -42,12 +68,15 @@ function PocketCard({ pocket }: { pocket: Pocket }) {
   }
 
   async function handleDelete() {
-    if (
-      window.confirm(
-        `Isi kantong (${formatRupiah(pocket.balance)}) akan dikembalikan ke Saldo Utama. Hapus kantong ${pocket.name}?`
-      )
-    ) {
-      await deletePocket(pocket.id).catch(() => {});
+    const msg = pocket.shared
+      ? `Hapus kantong bersama ${pocket.name}? Isinya harus kosong dulu.`
+      : `Isi kantong (${formatRupiah(pocket.balance)}) akan dikembalikan ke Saldo Utama. Hapus kantong ${pocket.name}?`;
+    if (window.confirm(msg)) {
+      try {
+        await deletePocket(pocket.id);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Gagal menghapus.");
+      }
     }
   }
 
@@ -58,10 +87,20 @@ function PocketCard({ pocket }: { pocket: Pocket }) {
           {pocket.emoji}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">{pocket.name}</p>
+          <p className="flex items-center gap-2 truncate font-semibold">
+            {pocket.name}
+            {pocket.shared && (
+              <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                👨‍👩‍👧 Bersama
+              </span>
+            )}
+          </p>
           <p className="text-lg font-bold tabular-nums tracking-tight">
             {formatRupiah(pocket.balance)}
           </p>
+          {pocket.shared && pocket.ownerName && (
+            <p className="text-xs text-muted">dibuat oleh {pocket.ownerName}</p>
+          )}
         </div>
         <button
           onClick={handleDelete}
@@ -90,29 +129,67 @@ function PocketCard({ pocket }: { pocket: Pocket }) {
       )}
 
       {mode === "idle" ? (
-        <div className="mt-4 flex gap-2">
+        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <button
             onClick={() => setMode("deposit")}
-            className="flex-1 rounded-full bg-accent/15 py-2 text-sm font-semibold text-accent transition-colors hover:bg-accent/25"
+            className="rounded-full bg-accent/15 py-2 text-sm font-semibold text-accent transition-colors hover:bg-accent/25"
           >
             🔵 Nabung
           </button>
           <button
+            onClick={() => setMode("topup")}
+            className="rounded-full bg-sky-400/15 py-2 text-sm font-semibold text-sky-300 transition-colors hover:bg-sky-400/25"
+          >
+            💵 Top-up
+          </button>
+          <button
             onClick={() => setMode("withdraw")}
-            className="flex-1 rounded-full bg-white/8 py-2 text-sm font-semibold transition-colors hover:bg-white/15"
+            className="rounded-full bg-white/8 py-2 text-sm font-semibold transition-colors hover:bg-white/15"
           >
             🟠 Ambil
+          </button>
+          <button
+            onClick={() => setMode("transfer")}
+            disabled={others.length === 0}
+            className="rounded-full bg-white/8 py-2 text-sm font-semibold transition-colors hover:bg-white/15 disabled:opacity-40"
+          >
+            ↔️ Transfer
           </button>
         </div>
       ) : (
         <form onSubmit={submit} className="mt-4 flex flex-col gap-2">
+          {mode === "transfer" && (
+            <select
+              className="input"
+              value={toId}
+              onChange={(e) => setToId(e.target.value)}
+              aria-label="Kantong tujuan"
+            >
+              <option value="" className="bg-background">
+                Pindah ke kantong…
+              </option>
+              {others.map((p) => (
+                <option key={p.id} value={p.id} className="bg-background">
+                  {p.emoji} {p.name}
+                </option>
+              ))}
+            </select>
+          )}
           <div className="flex gap-2">
             <input
               className="input"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               inputMode="numeric"
-              placeholder={mode === "deposit" ? "Nominal nabung" : "Nominal ambil"}
+              placeholder={
+                mode === "deposit"
+                  ? "Nominal nabung"
+                  : mode === "topup"
+                    ? "Nominal top-up"
+                    : mode === "withdraw"
+                      ? "Nominal ambil"
+                      : "Nominal transfer"
+              }
               aria-label="Nominal"
               autoFocus
             />
@@ -121,19 +198,21 @@ function PocketCard({ pocket }: { pocket: Pocket }) {
               disabled={busy}
               className="shrink-0 rounded-xl bg-gradient-to-r from-accent to-accent-soft px-4 text-sm font-semibold text-background disabled:opacity-50"
             >
-              {mode === "deposit" ? "Nabung" : "Ambil"}
+              OK
             </button>
             <button
               type="button"
-              onClick={() => {
-                setMode("idle");
-                setError("");
-              }}
+              onClick={reset}
               className="shrink-0 rounded-xl px-2 text-sm text-muted hover:text-foreground"
             >
               Batal
             </button>
           </div>
+          {mode === "topup" && (
+            <p className="text-xs text-muted">
+              Top-up = uang dari luar (hadiah, cash). Saldo Utama tidak berkurang.
+            </p>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
         </form>
       )}
@@ -142,11 +221,12 @@ function PocketCard({ pocket }: { pocket: Pocket }) {
 }
 
 export default function Kantong() {
-  const { ready, summary, createPocket } = useAppData();
+  const { ready, summary, createPocket, household } = useAppData();
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("🎯");
   const [target, setTarget] = useState("");
+  const [shared, setShared] = useState(false);
   const [error, setError] = useState("");
 
   async function submit(e: React.FormEvent) {
@@ -158,15 +238,19 @@ export default function Kantong() {
         name: name.trim(),
         emoji,
         targetAmount: target ? parseInt(target.replace(/\D/g, ""), 10) || null : null,
+        shared,
       });
       setName("");
       setEmoji("🎯");
       setTarget("");
+      setShared(false);
       setShowForm(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Gagal membuat kantong.");
     }
   }
+
+  const pockets = summary?.pockets ?? [];
 
   return (
     <div className="flex flex-col gap-6">
@@ -174,7 +258,8 @@ export default function Kantong() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Kantong Tabungan</h1>
           <p className="mt-1 text-sm text-muted">
-            Sisihkan uang dari Saldo Utama untuk tujuanmu.
+            Sisihkan uang dari Saldo Utama, top-up dari luar, atau transfer antar
+            kantong.
           </p>
         </div>
         <button
@@ -246,6 +331,22 @@ export default function Kantong() {
               placeholder="5000000"
             />
           </div>
+          {household && (
+            <label className="flex items-center gap-3 rounded-xl bg-white/5 p-3 text-sm">
+              <input
+                type="checkbox"
+                checked={shared}
+                onChange={(e) => setShared(e.target.checked)}
+                className="h-4 w-4 accent-emerald-500"
+              />
+              <span>
+                👨‍👩‍👧 Kantong bersama keluarga{" "}
+                <span className="text-muted">
+                  ({household.name}) — semua anggota bisa mengisi & melihat
+                </span>
+              </span>
+            </label>
+          )}
           {error && <p className="text-sm text-danger">{error}</p>}
           <button
             type="submit"
@@ -258,14 +359,14 @@ export default function Kantong() {
 
       {!ready ? (
         <div className="glass h-32 animate-pulse rounded-2xl" />
-      ) : !summary || summary.pockets.length === 0 ? (
+      ) : pockets.length === 0 ? (
         !showForm && (
           <div className="glass rounded-2xl p-10 text-center">
             <p className="mb-2 text-3xl">🐷</p>
             <p className="mb-1 font-semibold">Belum ada kantong</p>
             <p className="mb-6 text-sm text-muted">
               Buat kantong pertamamu — misalnya Dana Darurat atau Liburan — lalu
-              isi lewat tombol Nabung atau chat “nabung 100rb liburan”.
+              isi lewat tombol Nabung/Top-up atau chat “nabung 100rb liburan”.
             </p>
             <button
               onClick={() => setShowForm(true)}
@@ -277,8 +378,12 @@ export default function Kantong() {
         )
       ) : (
         <ul className="flex flex-col gap-3">
-          {summary.pockets.map((p) => (
-            <PocketCard key={p.id} pocket={p} />
+          {pockets.map((p) => (
+            <PocketCard
+              key={p.id}
+              pocket={p}
+              others={pockets.filter((o) => o.id !== p.id)}
+            />
           ))}
         </ul>
       )}

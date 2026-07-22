@@ -63,6 +63,9 @@ export type Pocket = {
   emoji: string;
   targetAmount: number | null;
   balance: number;
+  /** true = kantong bersama keluarga */
+  shared?: boolean;
+  ownerName?: string;
 };
 
 /** Rumah/keluarga — agregasi lintas akun. */

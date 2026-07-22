@@ -21,6 +21,7 @@ const TYPE_CHIP: Record<TransactionType, { icon: string; cls: string }> = {
   income: { icon: "🟢", cls: "bg-accent/15 text-accent" },
   saving_deposit: { icon: "🔵", cls: "bg-sky-400/15 text-sky-300" },
   saving_withdrawal: { icon: "🟠", cls: "bg-gold/15 text-gold" },
+  saving_topup: { icon: "💵", cls: "bg-sky-400/15 text-sky-300" },
 };
 
 export default function CatatanCepat() {
@@ -35,7 +36,9 @@ export default function CatatanCepat() {
   const parsed = useMemo(() => parseQuickInput(text), [text]);
   const activeType = (typeOverride || parsed.type) as TransactionType;
   const isSaving =
-    activeType === "saving_deposit" || activeType === "saving_withdrawal";
+    activeType === "saving_deposit" ||
+    activeType === "saving_withdrawal" ||
+    activeType === "saving_topup";
   const today = new Date();
 
   const todayTransactions = useMemo(

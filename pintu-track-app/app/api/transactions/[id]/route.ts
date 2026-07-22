@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { getSessionUser } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { transactions } from "@/lib/db/schema";
-import { pocketBalance } from "@/lib/stats";
+import { visiblePocketBalance } from "@/lib/stats";
 import { CATEGORIES, INCOME_CATEGORIES } from "@/lib/types";
 
 type Params = { params: Promise<{ id: string }> };
@@ -38,7 +38,7 @@ export async function PATCH(req: Request, { params }: Params) {
       existing.pocketId &&
       amount > existing.amount
     ) {
-      const balance = await pocketBalance(user.id, existing.pocketId);
+      const balance = (await visiblePocketBalance(user.id, existing.pocketId)) ?? 0;
       if (amount - existing.amount > balance) {
         return NextResponse.json(
           { error: `Isi kantong hanya Rp ${(balance + existing.amount).toLocaleString("id-ID")}` },
